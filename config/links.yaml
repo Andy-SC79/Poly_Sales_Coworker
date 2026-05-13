@@ -1,0 +1,29 @@
+# ==============================================================================
+# Static Links & Navigation Map
+# ==============================================================================
+# Add frequently requested URLs here. Poly will use this map to answer
+# "¿dónde encuentro X?" without needing to crawl the website.
+# Dynamic/unknown links: Poly will fall back to a web search tool.
+# ==============================================================================
+
+links:
+  # --- Store Navigation ---
+  catalog:        "https://vitalenergyshop.com/productos"
+  product_collagen: "https://vitalenergyshop.com/productos/colageno-hidrolizado"
+  cart:           "https://vitalenergyshop.com/carrito"
+  checkout:       "https://vitalenergyshop.com/pagar"
+
+  # --- Customer Service ---
+  track_order:    "https://vitalenergyshop.com/rastrear-pedido"
+  whatsapp_support: "https://wa.me/573001234567"
+  contact:        "https://vitalenergyshop.com/contacto"
+
+  # --- Legal & Policies ---
+  privacy_policy:    "https://vitalenergyshop.com/politica-de-privacidad"
+  return_policy:     "https://vitalenergyshop.com/politica-de-devoluciones"
+  terms_conditions:  "https://vitalenergyshop.com/terminos-y-condiciones"
+
+  # --- Social Media ---
+  instagram:      "https://instagram.com/vitalenergyshop"
+  facebook:       "https://facebook.com/vitalenergyshop"
+  tiktok:         "https://tiktok.com/@vitalenergyshop"

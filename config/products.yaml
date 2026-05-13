@@ -1,0 +1,28 @@
+# Catálogo de Productos — Vital Energy Shop
+# Este archivo es la fuente de verdad para Poly.
+# Puedes agregar, quitar o modificar productos aquí y volver a indexar.
+
+products:
+  - id: "colageno_hidrolizado"
+    name: "Colágeno Hidrolizado Vital Energy"
+    price: 85000
+    description: "Colágeno premium con tecnología de absorción rápida para mejorar la salud de la piel, uñas, cabello y articulaciones."
+    benefits:
+      - "Mejora la elasticidad y firmeza de la piel"
+      - "Fortalece el crecimiento del cabello y endurece las uñas"
+      - "Reduce dolores articulares y regenera cartílagos"
+    dosage: "1 scoop (cuchara medidora) al día disuelto en agua, jugo o batido."
+    city_availability: "Medellín, Bogotá, Cali (Envío gratis)"
+    stock: 50
+
+  - id: "energy_blast"
+    name: "Energy Blast (Energizante Natural)"
+    price: 45000
+    description: "Fórmula energizante natural a base de Guaraná, Té Verde y Vitaminas del complejo B."
+    benefits:
+      - "Energía inmediata y sostenida por hasta 6 horas"
+      - "Sin taquicardia ni efecto rebote"
+      - "Mejora la concentración y el enfoque mental"
+    dosage: "Tomar una cápsula por la mañana o 30 min antes de entrenar."
+    city_availability: "Nacional"
+    stock: 100

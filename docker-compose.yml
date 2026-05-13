@@ -1,0 +1,147 @@
+# ====================================================
+# Poly AI Coworker — Docker Compose
+# Levanta todo el ecosistema con: docker compose up
+# ====================================================
+
+services:
+
+  # --------------------------------------------------
+  # Main Application (FastAPI + LangGraph)
+  # --------------------------------------------------
+  app:
+    build:
+      context: .
+      target: app
+    container_name: poly_app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      # Override DB host to use Docker service name
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+    volumes:
+      - .:/app  # Live-reload in development (remove in production)
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    networks:
+      - poly_net
+
+  # --------------------------------------------------
+  # Background Worker (ARQ + Redis)
+  # --------------------------------------------------
+  worker:
+    build:
+      context: .
+      target: app
+    container_name: poly_worker
+    restart: unless-stopped
+    command: ["python", "-m", "workers.main"]
+    env_file:
+      - .env
+    environment:
+      # Override DB host to use Docker service name
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    networks:
+      - poly_net
+
+  # --------------------------------------------------
+  # PostgreSQL — Long-term Memory & Orders
+  # --------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: poly_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-poly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-poly_secret_change_in_prod}
+      POSTGRES_DB: ${POSTGRES_DB:-poly_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-poly}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - poly_net
+
+  # --------------------------------------------------
+  # Qdrant — Vector Database (RAG / Product Catalog)
+  # --------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: poly_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # HTTP API (for local inspection)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - poly_net
+
+  # --------------------------------------------------
+  # Redis — Cache, Sessions & Background Queue
+  # --------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: poly_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - poly_net
+
+  # --------------------------------------------------
+  # Ollama — Local LLM (Optional)
+  # --------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: poly_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    profiles:
+      - ollama   # Only starts with: docker compose --profile ollama up
+    networks:
+      - poly_net
+
+# --------------------------------------------------
+# Volumes & Networks
+# --------------------------------------------------
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  ollama_data:
+
+networks:
+  poly_net:
+    driver: bridge
