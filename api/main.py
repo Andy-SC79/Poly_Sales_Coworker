@@ -36,35 +36,42 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("poly.db_init_failed", error=str(e))
 
-    # 2. Build the LangGraph with persistent Postgres checkpointer
-    # We use a connection pool to manage checkpointer connections efficiently.
-    from psycopg_pool import AsyncConnectionPool
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    # 2. Build the LangGraph
     from core.brain.graph import get_poly_graph
     import core.brain.graph as graph_module
 
-    pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    
     try:
-        async with AsyncConnectionPool(
+        # Intentar conectar con Postgres para memoria persistente
+        from psycopg_pool import AsyncConnectionPool
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        
+        pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        
+        # Guardamos el pool en el estado de la app para que no se cierre
+        app.state.pool = AsyncConnectionPool(
             conninfo=pg_url, 
             max_size=10, 
             kwargs={"autocommit": True}
-        ) as pool:
-            checkpointer = AsyncPostgresSaver(pool)
-            # Ensure checkpointer tables exist
-            await checkpointer.setup()
-            
-            graph_module._poly_graph = await get_poly_graph(checkpointer=checkpointer)
-            log.info("poly.graph_ready", checkpointer="AsyncPostgresSaver")
-            
-            yield
+        )
+        await app.state.pool.open()
+        
+        checkpointer = AsyncPostgresSaver(app.state.pool)
+        await checkpointer.setup()
+        
+        graph_module._poly_graph = await get_poly_graph(checkpointer=checkpointer)
+        log.info("poly.graph_ready", checkpointer="AsyncPostgresSaver")
+        
     except Exception as e:
-        log.error("poly.graph_init_failed", error=str(e))
-        # Fallback to memory for stability if DB fails
+        log.error("poly.db_checkpointer_failed", error=str(e))
+        # Fallback a memoria local para que el servidor NO se apague
         graph_module._poly_graph = await get_poly_graph()
         log.info("poly.graph_ready_fallback", checkpointer="MemorySaver")
-        yield
+
+    yield
+    
+    # Shutdown
+    if hasattr(app.state, "pool"):
+        await app.state.pool.close()
     log.info("poly.shutdown")
 
 

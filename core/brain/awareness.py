@@ -77,8 +77,11 @@ def get_context_awareness(customer_id: str, last_interaction_at: datetime = None
             days = int(seconds // 86400)
             recency_msg = f"Han pasado {days} días desde su última conversación."
 
-    # 3. Build Block
+    # 3. Build Astronomical and Date Context
+    import ephem
     day_name = now_utc.strftime("%A")
+    full_date = now_utc.strftime("%Y-%m-%d")
+    
     # Simple Spanish translation for days
     days_es = {
         "Monday": "lunes", "Tuesday": "martes", "Wednesday": "miércoles",
@@ -86,10 +89,27 @@ def get_context_awareness(customer_id: str, last_interaction_at: datetime = None
     }
     day_es = days_es.get(day_name, day_name)
     
+    # Calculate Moon Phases
+    next_full_moon = ephem.next_full_moon(now_utc).datetime().strftime("%Y-%m-%d")
+    moon = ephem.Moon(now_utc)
+    moon_phase_percent = int(moon.phase)
+    
+    if moon_phase_percent > 95:
+        phase_name = "Luna Llena"
+    elif moon_phase_percent < 5:
+        phase_name = "Luna Nueva"
+    elif moon.elong < 0:
+        phase_name = "Luna Menguante"
+    else:
+        phase_name = "Luna Creciente"
+
     block = (
-        f"## Contexto Espacio-Temporal\n"
-        f"- Ubicación probable del cliente: {country_name}\n"
-        f"- Hora local del cliente ({matched_tz}): {local_time_str} ({day_es})\n"
+        f"## Contexto de Identidad y Espacio-Temporal\n"
+        f"- ID/Teléfono del cliente: {customer_id}\n"
+        f"- Ubicación probable: {country_name}\n"
+        f"- Fecha Actual: {day_es}, {full_date}\n"
+        f"- Hora local ({matched_tz}): {local_time_str}\n"
+        f"- Fase Lunar Actual: {phase_name} ({moon_phase_percent}% iluminada). Próxima Luna Llena: {next_full_moon}\n"
         f"- Recencia: {recency_msg if recency_msg else 'Es el primer contacto o ha pasado mucho tiempo.'}\n"
     )
     

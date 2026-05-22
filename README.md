@@ -1,104 +1,78 @@
-# Poly AI Coworker 🤖
+# Poly AI Coworker — Asistente de Ventas de Alto Rendimiento
 
-> Multi-Agent AI Sales & Support System — Built with LangGraph.
-> Now with **Corporate OS** (Multi-Role Identity Management).
+Poly es un agente de IA autónomo diseñado para transformar la interacción con clientes en canales como WhatsApp y Telegram. Construida sobre **LangGraph**, Poly no es solo un chatbot, sino una "compañera de trabajo" capaz de guiar a un cliente desde el descubrimiento de una necesidad hasta el cierre de una venta y el seguimiento post-venta.
 
----
+## 🚀 Arquitectura "Poly 2.0"
 
-## What is this?
+Poly utiliza un grafo de estados dinámico que le permite tener un razonamiento fluido y resiliente:
 
-**Poly** is a production-grade AI Coworker designed for conversational commerce. She handles the full customer lifecycle — from casual discovery conversations through to confirmed orders — across multiple channels and multiple products.
+- **Razonamiento Estructurado:** Un enrutador basado en LLM con salida determinística (Pydantic) que analiza el contexto y la inercia de la conversación para decidir el siguiente paso.
+- **Marco de 3 Pilares:** Su comportamiento está regido por Principios Morales (Alma), una Constitución Política (Leyes) y un Contrato de Trabajo (Misión) definidos en `config/personality.yaml`.
+- **RAG Avanzado:** Búsqueda semántica en tiempo real sobre el catálogo de productos (Qdrant).
+- **Integración Multicanal:** 
+  - **WhatsApp (Twilio):** Para atención directa a clientes.
+  - **Telegram:** Hub de administración para el dueño del negocio.
+- **Persistencia Profesional:** Memoria a largo plazo gestionada mediante PostgreSQL para reconocer a los clientes y sus preferencias meses después.
 
-This repository is a **reusable template** that can be adapted to any product catalog and business.
+## 🛡️ Role-Based Access Control (RBAC)
 
----
+La ejecución de herramientas está asegurada a través de un esquema estricto de roles:
+- **`CUSTOMER_TOOLS`:** Herramientas globales para ventas y logística disponibles en todo momento (Consultas en catálogo Dropi, Verificación de datos, Creación y Cancelación segura de pedidos, y Escalación a Supervisor).
+- **`ADMIN_TOOLS`:** Herramientas exclusivas para el rol de administrador desde Telegram. Permiten la manipulación autónoma de Poly sobre su propia arquitectura y la base de datos:
+  - **Arquitecto:** Modificación y restauración de configuraciones y personalidad.
+  - **CRM Memory:** Manipulación manual del historial y datos de clientes.
+  - **Logística Avanzada:** Asignación de números de guía de envío e inmutabilidad de estado.
+  - **BI & Analytics:** Extracción de KPIs y reportes financieros.
 
-## 🏛️ Corporate OS Architecture
+## 🛠️ Stack Tecnológico
 
-Poly is no longer just a sales bot; she is an organizational intelligent entity that recognizes roles and adjusts her purpose accordingly:
+- **Core:** Python 3.11+, LangChain, LangGraph.
+- **Modelos:** GPT-4o Mini (Razonamiento), Gemini 2.0 Flash (Visión/Backup), Whisper (Voz).
+- **Bases de Datos:** 
+  - **PostgreSQL:** Memoria conversacional y CRM local.
+  - **Qdrant:** Catálogo de productos vectorial.
+  - **Supabase:** Registro central y control de pedidos en la nube.
+- **Integraciones:** Dropi (Dropshipping), Twilio (WhatsApp), Telegram API.
 
-1.  **Owner Mode (Strategist)**: Business intelligence, KPI reporting, and strategic advice for the founder.
-2.  **Agent Mode (AI-to-AI)**: Protocol-based, technical, and assertive communication for other AI agents.
-3.  **Employee Mode (Operational)**: Task coordination and operational support for the team.
-4.  **Customer Mode (Sales)**: Empathy-driven sales and support (the classic Poly).
+## 📂 Estructura del Proyecto
 
----
-
-## 🧬 Cloneability & Customization
-
-Poly is designed to be easily "cloned" and personalized for any business using a Seed-based approach.
-
-### 1. The Owner Seed (`config/owner_seed.yaml`)
-Use this file to define the initial "DNA" of the clone:
-- Owner name and role.
-- Primary and secondary business goals.
-- Preferred tone and working style.
-- Initial instructions for the AI.
-
-### 2. Personality Evolution
-Poly's "Soul" is dynamic. While core traits are defined in `config/personality.yaml`, she **learns and evolves** based on your feedback. If you tell her "Be more direct", she updates her long-term memory and adjusts her tone permanently for you.
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Framework | FastAPI + LangGraph |
-| Orchestration | LangGraph (Multi-Agent State Machine) |
-| Identity | Multi-Role Corporate OS (Owner, Employee, Agent, Customer) |
-| Memory (Short) | LangGraph Checkpointers (PostgreSQL) |
-| Memory (Long) | PostgreSQL via SQLAlchemy |
-| RAG / Catalog | Qdrant Vector DB |
-| Audio | OpenAI Whisper (STT) |
-| Admin Hub | Telegram Bot |
-| Containerization | Docker + Docker Compose |
-
----
-
-## 🚀 Getting Started
-
-### 1. Clone and Configure
-```bash
-cp .env.example .env
-# Fill in your API keys
-```
-
-### 2. Personalize your Clone
-Edit `config/owner_seed.yaml` with your own information and business goals.
-
-### 3. Start the Ecosystem
-```bash
-docker compose up
-```
-
-### 4. Initialize Poly (Telegram)
-Go to your Telegram Admin Bot and run:
-- `/init`: This loads the `owner_seed.yaml` into Poly's memory and officially registers you as the **Owner**.
-- `/status`: Check that all services (DB, Qdrant, LLM) are active.
-
----
-
-## 📋 Project Structure
-
-```
-.
-├── api/               # FastAPI entry point (Webhooks)
+```text
+├── api/                # Endpoints de FastAPI para webhooks
+├── channels/           # Adaptadores de WhatsApp y Telegram
+├── config/             # Configuración de personalidad (YAML) y productos
 ├── core/
-│   ├── brain/         # LangGraph agents, router & corporate prompts
-│   ├── memory/        # DB models, repository & persistent checkpointers
-│   └── knowledge/     # RAG (product catalog indexer)
-├── channels/          # WhatsApp (Twilio) & Telegram gateways
-├── config/            # owner_seed.yaml, personality.yaml, products.yaml
-├── infrastructure/    # Dockerfile, docker-compose.yml
-└── telegram_runner.py # Standalone runner for the Admin Hub
+│   ├── brain/          # El "Cerebro": Grafos, Agentes, Enrutador, Selector y Herramientas
+│   ├── knowledge/      # Motor RAG y búsqueda vectorial
+│   └── memory/         # Modelos de base de datos y repositorios (CRM)
+├── infrastructure/     # Notificaciones y utilidades core
+├── integrations/       # Conexiones externas (Supabase, Dropi)
+├── scripts/            # Herramientas de mantenimiento (Indexación, etc.)
+├── poly_chat.py        # CLI para pruebas rápidas en terminal
+└── telegram_runner.py  # Runner del panel administrativo
 ```
 
+## ⚙️ Configuración Rápida
+
+1. **Clonar y Preparar:**
+   ```bash
+   poetry install
+   copy .env.example .env
+   ```
+
+2. **Indexar el Catálogo:**
+   Edita `config/products.yaml` y ejecuta:
+   ```bash
+   python scripts/index_catalog.py
+   ```
+
+3. **Iniciar en Local:**
+   ```bash
+   python telegram_runner.py  # Para el panel de admin
+   python poly_chat.py        # Para probar como cliente en consola
+   ```
+
+## 🎯 Filosofía de Ventas
+Poly sigue un modelo de **Venta Consultiva**. Su prioridad es la empatía y la resolución de dudas. Solo cuando el cliente está listo, activa sus herramientas de cierre para recolectar datos y montar el pedido automáticamente en Supabase y plataformas de logística.
+
 ---
-
-## 📈 Roadmap
-
-- [x] **Phase 1**: Project structure, Docker, persistent memory (Postgres).
-- [x] **Phase 2**: Multi-agent Sales Flow, RAG catalog (Qdrant).
-- [x] **Phase 3**: Corporate OS (Owner/Agent/Employee roles), Identity management.
-- [ ] **Phase 4**: Automated analytics reports, broadcast campaigns, Droppi v2 integration.
+*Desarrollado con ❤️ para Vital Energy Shop.*

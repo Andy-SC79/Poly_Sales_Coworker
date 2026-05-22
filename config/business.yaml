@@ -1,0 +1,50 @@
+# Configuración Global de Negocio — PolyEngine Template
+# ==============================================================================
+
+business_info:
+  name: "Vital Energy Shop"
+  industry: "ecommerce_fisico" # ecommerce_fisico | seguros | inmobiliaria | educativo
+  country: "Colombia"
+  currency: "COP"
+  website: "https://vitalenergyshop.com"
+
+# Reglas Geográficas (Para validaciones automáticas)
+geography:
+  main_region: "Colombia"
+  valid_departments:
+    - "Antioquia"
+    - "Bogota"
+    - "Valle del Cauca"
+    - "Atlantico"
+    - "Santander"
+    - "Bolivar"
+    - "Cundinamarca"
+    - "Risaralda"
+    - "Caldas"
+    - "Quindio"
+    - "Huila"
+    - "Tolima"
+    - "Norte de Santander"
+    - "Magdalena"
+    - "Cesar"
+    - "Cordoba"
+    - "Meta"
+
+# Configuración de Conversión (Campos requeridos para el 'Cierre')
+conversion_schema:
+  required_fields:
+    - name: "full_name"
+      label: "Nombre Completo"
+      validation: "text"
+    - name: "email"
+      label: "Correo Electrónico"
+      validation: "email_mx"
+    - name: "whatsapp_number"
+      label: "WhatsApp de Envío"
+      validation: "phone_10"
+    - name: "city"
+      label: "Ciudad"
+      validation: "text"
+    - name: "address"
+      label: "Dirección de Entrega"
+      validation: "colombian_address"

@@ -11,14 +11,36 @@ Graph flow:
 
 Each agent node can also loop back for multi-turn interactions.
 """
+import json
 import structlog
 from langgraph.graph import StateGraph, START, END
-
+from langchain_core.messages import ToolMessage
 from core.brain.state import PolyState
 from core.brain.router import route
 from core.brain import agents
 
 log = structlog.get_logger()
+
+def sync_state_from_tools(state: PolyState):
+    """Extrae datos importantes (como el order_id) de las respuestas de las herramientas."""
+    if not state.get("messages"):
+        return {}
+    
+    last_msg = state["messages"][-1]
+    
+    # Solo nos interesan mensajes de herramientas que respondieron con éxito
+    if isinstance(last_msg, ToolMessage):
+        try:
+            # Intentar parsear el contenido como JSON
+            data = json.loads(last_msg.content)
+            updates = {}
+            if isinstance(data, dict):
+                if data.get("id"):
+                    updates["current_order_id"] = data["id"]
+                return updates
+        except Exception:
+            pass
+    return {}
 
 
 async def build_graph(checkpointer=None):
@@ -37,17 +59,24 @@ async def build_graph(checkpointer=None):
     graph.add_node("complaint",    agents.complaint_agent)
     graph.add_node("admin",        agents.admin_agent)
     graph.add_node("escalation",   agents.escalation_agent)
+    graph.add_node("silence",      agents.silence_agent)
+    graph.add_node("profiler",     agents.profile_extractor)
+    graph.add_node("sync_state",   sync_state_from_tools)
     
     # ── Tools Node ────────────────────────────────────────────────────────────
     from langgraph.prebuilt import ToolNode
-    from core.brain.model_selector import web_search_tool
-    
-    tools_node = ToolNode([web_search_tool])
+    from core.brain.model_selector import get_admin_tools
+
+    tools_node = ToolNode(get_admin_tools(), handle_tool_errors=True)
     graph.add_node("tools", tools_node)
 
-    # ── Conditional edge: START → router → agent node ─────────────────────────
+    # ── Flow: START → profiler → router → agents ─────────────────────────────
+    # El profiler extrae datos básicos antes de cualquier decisión.
+    graph.add_edge(START, "profiler")
+
+    # Después de perfilar, el enrutador decide a qué agente ir
     graph.add_conditional_edges(
-        START,
+        "profiler",
         route,
         {
             "greeting":     "greeting",
@@ -59,6 +88,7 @@ async def build_graph(checkpointer=None):
             "complaint":    "complaint",
             "admin":        "admin",
             "escalation":   "escalation",
+            "silence":      "silence"
         },
     )
 
@@ -68,38 +98,33 @@ async def build_graph(checkpointer=None):
     for node in ["greeting", "discovery", "presentation", "objection",
                  "closing", "post_sale", "complaint", "admin"]:
         graph.add_conditional_edges(node, tools_condition)
-        # If tools_condition returns "tools", it goes to tools node.
-        # If it returns END, it ends.
         
-    # Tools node always goes back to the stage it came from? 
-    # Actually, in this simple graph, it might be better to go back to the same node.
-    # But LangGraph's tools_condition usually expects to return to the caller.
-    # We'll use a custom edge to return to the same stage.
+    # Las herramientas siempre pasan por el sincronizador antes de volver
+    graph.add_edge("tools", "sync_state")
     
-    def should_continue(state: PolyState):
-        messages = state["messages"]
-        last_message = messages[-1]
-        if last_message.tool_calls:
-            return "tools"
-        return END
+    # (Se eliminaron las rutas incondicionales a END porque sobreescribían a tools_condition y route_after_tools)
 
-    # We need to map the tools node back to the appropriate agent.
-    # This is tricky with multiple stages. 
-    # Simplest way: use a "router" after tools to go back to the current stage.
     def route_after_tools(state: PolyState):
         return state.get("stage", "greeting")
 
-    graph.add_conditional_edges("tools", route_after_tools)
+    graph.add_conditional_edges("sync_state", route_after_tools, {
+        "greeting": "greeting",
+        "discovery": "discovery",
+        "presentation": "presentation",
+        "objection": "objection",
+        "closing": "closing",
+        "post_sale": "post_sale",
+        "complaint": "complaint",
+        "admin": "admin"
+    })
 
-    # Escalation always ends the turn (no tools there usually)
+    # Escalation siempre termina el turno
     graph.add_edge("escalation", END)
 
-    # ── Checkpointer: Default to _get_checkpointer if none provided ───────────
     if checkpointer is None:
         checkpointer = await _get_checkpointer()
     
     compiled = graph.compile(checkpointer=checkpointer)
-
     log.info("graph.compiled", checkpointer=type(checkpointer).__name__)
     return compiled
 

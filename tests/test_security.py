@@ -8,6 +8,7 @@ No LLM or API keys required — tests the HTTP layer only.
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
+from importlib import reload
 
 
 @pytest.fixture
@@ -18,14 +19,15 @@ def production_client():
         "TWILIO_AUTH_TOKEN": "test_auth_token_1234567890abcdef",
         "DATABASE_URL": "postgresql+asyncpg://poly:@localhost:5432/poly_db",
     }):
-        # Re-import with patched env
-        from importlib import reload
         import config.settings as settings_module
         settings_module.get_settings.cache_clear()
         reload(settings_module)
 
-        from api.main import app
-        yield TestClient(app, raise_server_exceptions=False)
+        import channels.whatsapp as whatsapp_module
+        reload(whatsapp_module)
+        import api.main as main_module
+        reload(main_module)
+        yield TestClient(main_module.app, raise_server_exceptions=False)
 
     # Restore settings cache
     from config.settings import get_settings
@@ -40,8 +42,15 @@ def dev_client():
         "TWILIO_AUTH_TOKEN": "test_auth_token_1234567890abcdef",
         "DATABASE_URL": "postgresql+asyncpg://poly:@localhost:5432/poly_db",
     }):
-        from api.main import app
-        yield TestClient(app, raise_server_exceptions=False)
+        import config.settings as settings_module
+        settings_module.get_settings.cache_clear()
+        reload(settings_module)
+
+        import channels.whatsapp as whatsapp_module
+        reload(whatsapp_module)
+        import api.main as main_module
+        reload(main_module)
+        yield TestClient(main_module.app, raise_server_exceptions=False)
 
 
 class TestTwilioSignatureValidation:

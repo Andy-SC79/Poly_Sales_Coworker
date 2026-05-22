@@ -1,86 +1,43 @@
-"""
-tests/test_router.py
----------------------
-Unit tests for the intent router — no API key needed.
-Tests keyword matching and validates all stage literals.
-Run with: python -m pytest tests/test_router.py -v
-"""
-import asyncio
 import pytest
 from langchain_core.messages import HumanMessage
-from core.brain.state import PolyState
-from core.brain.router import _keyword_route, route
+
+from core.brain.router import RouteDecision, route
 
 
-def _make_state(text: str, is_admin: bool = False) -> PolyState:
-    """Helper to build a minimal PolyState for testing."""
-    return PolyState(
-        messages=[HumanMessage(content=text)],
-        channel="whatsapp",
-        customer_id="+573001234567",
-        stage="greeting",
-        customer_name=None,
-        pain_points=[],
-        recommended_products=[],
-        order_data=None,
-        is_admin=is_admin,
-        escalation_pending=False,
-        long_term_profile=None,
-    )
+def _make_state(text: str, stage: str = "greeting", is_admin: bool = False) -> dict:
+    return {
+        "messages": [HumanMessage(content=text)],
+        "channel": "whatsapp",
+        "customer_id": "+573001234567",
+        "stage": stage,
+        "is_admin": is_admin,
+        "escalation_pending": False,
+        "is_paused": False,
+    }
 
 
-# ── Keyword Router Tests ──────────────────────────────────────────────────────
-
-class TestKeywordRouter:
-    def test_greeting_hola(self):
-        assert _keyword_route("hola!") == "greeting"
-
-    def test_greeting_buenos_dias(self):
-        assert _keyword_route("Buenos días, ¿cómo están?") == "greeting"
-
-    def test_closing_quiero_comprar(self):
-        assert _keyword_route("quiero comprar el colágeno") == "closing"
-
-    def test_closing_como_pago(self):
-        assert _keyword_route("¿Cómo pago?") == "closing"
-
-    def test_objection_muy_caro(self):
-        assert _keyword_route("me parece muy caro") == "objection"
-
-    def test_objection_no_se(self):
-        assert _keyword_route("no sé si sirve de verdad") == "objection"
-
-    def test_post_sale_pedido(self):
-        assert _keyword_route("¿dónde está mi pedido?") == "post_sale"
-
-    def test_complaint_queja(self):
-        assert _keyword_route("tengo una queja con mi último pedido") == "complaint"
-
-    def test_ambiguous_returns_none(self):
-        """Unknown message should not be force-matched."""
-        assert _keyword_route("me duele la espalda mucho") is None
-
-    def test_ambiguous_question_returns_none(self):
-        assert _keyword_route("¿tiene magnesio?") is None
-
-
-# ── Admin Routing ─────────────────────────────────────────────────────────────
-
-class TestAdminRouting:
+class TestRouting:
     @pytest.mark.asyncio
-    async def test_admin_channel_routes_to_admin(self):
+    async def test_admin_routes_to_admin_without_llm(self):
         state = _make_state("dame un reporte de ventas", is_admin=True)
-        result = await route(state)
-        assert result == "admin"
+        assert await route(state) == "admin"
 
     @pytest.mark.asyncio
-    async def test_greeting_routes_correctly(self):
-        state = _make_state("Hola, buenas tardes")
-        result = await route(state)
-        assert result == "greeting"
+    async def test_escalation_pending_routes_to_escalation(self):
+        state = _make_state("hola")
+        state["escalation_pending"] = True
+        assert await route(state) == "escalation"
 
     @pytest.mark.asyncio
-    async def test_closing_intent_routes_correctly(self):
-        state = _make_state("quiero comprar, ¿cómo hago el pedido?")
-        result = await route(state)
-        assert result == "closing"
+    async def test_low_confidence_closing_stickiness_does_not_raise_name_error(self, monkeypatch):
+        async def fake_classify(state):
+            return RouteDecision(
+                stage="discovery",
+                reasoning="ambiguous short reply",
+                confidence=0.2,
+            )
+
+        monkeypatch.setattr("core.brain.router._llm_classify", fake_classify)
+        state = _make_state("ok", stage="closing")
+
+        assert await route(state) == "closing"

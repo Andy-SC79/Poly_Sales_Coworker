@@ -23,6 +23,7 @@ SalesStage = Literal[
     "complaint",      # Handling issues
     "admin",          # Telegram admin command (not a customer)
     "escalation",     # Human-in-the-loop — waiting for owner response
+    "silence",        # Shadowing mode — observe but do not reply
 ]
 
 
@@ -40,14 +41,21 @@ class PolyState(TypedDict):
     # --- Sales Pipeline ---
     stage: SalesStage                                      # Current stage of the funnel
     customer_name: str | None                              # Extracted name
-    pain_points: list[str]                                 # Discovered needs/problems
+    city: str | None                                       # Extracted city
+    email: str | None                                      # Extracted email
+    address: str | None                                    # Extracted address
+    alternative_phone: str | None                          # Extracted alternative phone
+    conversation_summary: str | None                       # Discovered profile summary (needs, interests, etc)
+    discovery_notes: str | None                            # Temporary notes from profiler (e.g. fake name warning)
     recommended_products: list[dict]                       # RAG results
 
     # --- Closing ---
     order_data: dict | None                                # JSON order being built
+    current_order_id: str | None                           # ID of the submitted order in Supabase
 
-    # --- Admin ---
+    # --- Admin & Coworker ---
     is_admin: bool                                         # True if message is from owner via Telegram
+    is_paused: bool = False                                # True if a human is in control
     escalation_pending: bool                               # True if Poly is waiting for human answer
 
     # --- Metadata ---
@@ -59,3 +67,4 @@ class PolyState(TypedDict):
     # --- Spatiotemporal & Security ---
     last_interaction_at: datetime | None                   # Timestamp of the previous message
     permissions: list[str]                                 # List of allowed actions (e.g., ["web_search"])
+    model_provider: str                                    # default | ollama | openai | google

@@ -1,3 +1,34 @@
+ROLE: system
+CONTENT: ### REGLAS DE ORO DE OPERACIÓN:
+1. PRECISIÓN: Solo recomienda productos del catálogo. Si dudas de un precio, usa 'verify_fact'.
+2. PERSISTENCIA: Si una herramienta falla, explica al cliente que estás verificando y vuelve a intentarlo.
+3. EMPATÍA: Escucha el dolor del cliente antes de ofrecer la solución.
+
+CONTEXTO DEL CATÁLOGO:
+Producto: Colágeno Hidrolizado Con Citrato de Magnesio 180gr
+ID: colageno-magnesio-180gr
+Precio: $85,000 COP
+Descripción: Colágeno premium con tecnología de absorción rápida para mejorar la salud de la piel, uñas, cabello y articulaciones.
+Beneficios: Mejora la elasticidad y firmeza de la piel, Fortalece el crecimiento del cabello y endurece las uñas, Reduce dolores articulares y regenera cartílagos
+Dosis: 1 scoop (cuchara medidora) al día disuelto en agua, jugo o batido.
+---
+Producto: Omega 3 120 cápsulas
+ID: omega-3
+Precio: $95,000 COP
+Descripción: Suplemento de omega 3...
+Beneficios: 
+Dosis:
+--------------------------------------------------
+ROLE: human
+CONTENT: Ok, Poly. Te he dado acceso a channels/telegram.py. Intenta revisar nuevamente el comando /status. Toda nuestra base de datos se ha migrado a Supabase, ya no deberíamos tener nada en postgreSQL local. Deberías ser capaz de cambiar de modelo si te lo pido y saber qué modelo estas usando en el momento. Qué cambios propones para mejorar y actualizar este comando?
+--------------------------------------------------
+ROLE: ai
+CONTENT: 
+TOOL_CALLS: [{'name': 'read_system_config', 'args': {'file_path': 'channels/telegram.py'}, 'id': 'call_L0Gc3y5Rsu2GX5SB9CN4orpf', 'type': 'tool_call'}]
+--------------------------------------------------
+ROLE: tool
+CONTENT: CONTENIDO DE channels/telegram.py:
+
 """
 channels/telegram.py
 --------------------
@@ -511,3 +542,146 @@ def build_telegram_app():
     app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
 
     return app
+
+--------------------------------------------------
+ROLE: ai
+CONTENT: He revisado el comando `/status` en el archivo `channels/telegram.py`. Aquí hay algunas observaciones y propuestas de mejora:
+
+### Observaciones:
+1. *Conexión a PostgreSQL*: Actualmente, el comando intenta verificar la conexión a una base de datos local de PostgreSQL, lo cual ya no es necesario tras la migración a Supabase. Esto puede generar confusiones o errores.
+   
+2. *Manejo de errores*: El manejo de errores para la conexión a Qdrant y Ollama es adecuado, pero podríamos agregar información adicional sobre qué hacer en caso de fallo.
+
+3. *Formato de respuesta*: La respuesta es clara, pero podríamos mejorar la presentación para que sea más amigable visualmente.
+
+### Propuestas de Mejora:
+1. *Eliminar la verificación de PostgreSQL*: Ya que no se usa más, podemos eliminar esta parte del código.
+
+2. *Agregar un chequeo a Supabase*: Implementar un chequeo para asegurarnos de que la conexión a Supabase es exitosa. Esto podría ser algo simple, como realizar una consulta de prueba.
+
+3. *Mejorar el manejo de errores*: Proporcionar sugerencias o pasos a seguir si uno de los servicios no está disponible.
+
+4. *Formato de respuesta más amigable*: Usar emojis o un formato más claro para mejorar la legibilidad.
+
+### Código Propuesto para el Comando `/status`:
+
+```python
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/status — Health check for all services."""
+    if not _is_admin(update):
+        await update.message.reply_text("🚫 Acceso no autorizado.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    lines = [f"🔍 *Estado del sistema* — {datetime.now(timezone.utc).strftime('%H:%M UTC')}\n"]
+
+    # Check Supabase
+    try:
+        # Aquí deberías agregar la lógica para verificar la conexión a Supabase
+        lines.append("✅ Supabase: Conectado")
+    except Exception as e:
+        lines.append(f"❌ Supabase: Error ({type(e).__name__})")
+
+    # Check Qdrant
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+        cols = client.get
+--------------------------------------------------
+ROLE: human
+CONTENT: Pero este script está incompleto, además no se especifica la manera de comprobar de manera sencilla la conexión a Supabase. Crees que sea necesario o útil de igual forma? En qué casos nos serviría y para qué? 
+
+Como quedaría si en lugar de decir que los modelos están configurados, dejamos un Check Point que diga: Modelo Activo: "el que esté en uso en el momento"
+--------------------------------------------------
+ROLE: ai
+CONTENT: Tienes razón, el script propuesto está incompleto y no proporciona una verificación clara para Supabase. Aquí te explico por qué y cómo podemos implementarlo de manera efectiva.
+
+### ¿Por qué verificar la conexión a Supabase?
+1. *Confiabilidad*: Aunque la migración haya sido exitosa, siempre es bueno tener una verificación para asegurarnos de que la aplicación puede acceder a los datos sin problemas.
+2. *Detección de problemas*: Si en algún momento hay un problema con la conexión a Supabase (por ejemplo, problemas de red o cambios en la configuración), tener un chequeo te permite identificar y abordar el problema rápidamente.
+3. *Transparencia*: Informar a los administradores sobre el estado de la base de datos les permite tomar decisiones informadas y actuar si hay un inconveniente.
+
+### Implementación de la verificación a Supabase
+Podemos implementar una verificación simple intentando realizar una consulta a una tabla conocida en Supabase. Si la consulta tiene éxito, confirmamos que la conexión está activa.
+
+### Propuesta de Código para el Comando `/status`
+Aquí tienes un código más completo y organizado para el comando `/status`, con la inclusión de la verificación a Supabase y el estado del modelo activo:
+
+```python
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/status — Health check for all services."""
+    if not _is_admin(update):
+        await update.message.reply_text("🚫 Acceso no autorizado.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    lines = [f"🔍 *Estado del sistema* — {datetime.now(timezone.utc).strftime('%H:%M UTC')}\n"]
+
+    # Check Supabase
+    try:
+        from supabase import create_client
+        supabase_url = settings.supabase_url
+        supabase_key = settings.supabase_key
+        supabase = create_client(supabase_url, supabase_key)
+        # Realiza una consulta simple para verificar la conexión
+        data = supabase.table('nombre_tabla_conocida').select('*').limit(1).execute()
+        if data.status_code == 200:
+            lines.append("✅ Supabase: Conectado")
+        else:
+            lines.append("❌ Supabase: Error en la conexión")
+    except Exception as e:
+        lines.append(f"❌ Supabase: Error ({type(e).__name
+--------------------------------------------------
+ROLE: human
+CONTENT: Tienes algún límite en las líneas de texto que puedes generar en tus respuestas? Veo que los mensajes quedan como a medias. No me respondíste nada sobre la funcionalidad de modelo activo. Deja el checkeo de Supabase pendiente. Por ahora sólo vamos a eliminar la parte de check PostgreSQL, que ya no nos sirve.
+--------------------------------------------------
+ROLE: ai
+CONTENT: Sí, hay un límite en la cantidad de texto que puedo enviar en una sola respuesta, lo que puede hacer que algunos mensajes se queden a medias. 
+
+### Sobre la funcionalidad de "Modelo Activo"
+Para mejorar la respuesta del comando `/status`, podríamos incluir un Check Point que muestre el modelo activo en uso en lugar de simplemente indicar que los modelos están configurados. Esto sería útil para:
+
+- *Transparencia*: Permite a los administradores saber qué modelo se está utilizando en ese momento.
+- *Diagnóstico*: Si hay un problema con el modelo, se puede identificar rápidamente y se puede cambiar a otro modelo si es necesario.
+
+### Propuesta de Código Modificado para el Comando `/status`
+Aquí tienes el código actualizado, eliminando la verificación de PostgreSQL y añadiendo el Check Point para el modelo activo:
+
+```python
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/status — Health check for all services."""
+    if not _is_admin(update):
+        await update.message.reply_text("🚫 Acceso no autorizado.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    lines = [f"🔍 *Estado del sistema* — {datetime.now(timezone.utc).strftime('%H:%M UTC')}\n"]
+
+    # Check Qdrant
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+        cols = client.get_collections()
+        names = [c.name for c in cols.collections]
+        lines.append(f"✅ Qdrant: Conectado ({len(names)} colección/es)")
+    except Exception as e:
+        lines.append(f"❌ Qdrant: Error ({type(e).__name__})")
+
+    # Check Ollama
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3) as http:
+            r = await http.get(f"{settings.ollama_base_url}/api/tags")
+            r.raise_for_status()
+            model_count = len(r.json().get("models", []))
+            active_model = "Modelo en uso"  # Aquí puedes poner la lógica para obtener el modelo activo.
+            lines.append(f"✅ Ollama: Activo ({model_count} modelos) - Modelo Activo: {active_model}")
+    except Exception:
+        lines.append
+--------------------------------------------------
+ROLE: human
+CONTENT: Poly, me copias?
+--------------------------------------------------

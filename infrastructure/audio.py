@@ -42,35 +42,47 @@ async def transcribe_from_url(
         Transcribed text string, or None if transcription failed.
     """
     if not settings.openai_api_key:
+        print("\n❌ [AUDIO ERROR] No hay OPENAI_API_KEY en el .env")
         log.error("audio.transcription_skipped", reason="No OPENAI_API_KEY configured")
         return None
 
-    log.info("audio.downloading", url=audio_url[:80])
+    print(f"\n🎧 [AUDIO] Intentando descargar: {audio_url[:50]}...")
 
     try:
         # 1. Download audio to a temporary file
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             if auth:
                 response = await client.get(audio_url, auth=auth)
             else:
                 response = await client.get(audio_url)
-            response.raise_for_status()
+            
+            if response.status_code != 200:
+                print(f"❌ [AUDIO ERROR] Twilio devolvió error {response.status_code}")
+                response.raise_for_status()
 
         # Detect extension from content type
         content_type = response.headers.get("content-type", "audio/ogg")
+        print(f"📄 [AUDIO] Formato detectado: {content_type}")
         extension = _content_type_to_ext(content_type)
 
         with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as tmp:
             tmp.write(response.content)
             tmp_path = tmp.name
 
-        log.info("audio.downloaded", size_kb=len(response.content) // 1024, ext=extension)
+        print(f"💾 [AUDIO] Archivo guardado temporalmente: {tmp_path}")
 
         # 2. Transcribe using OpenAI Whisper API
         transcription = await _whisper_transcribe(tmp_path, language)
+        
+        if not transcription:
+            print("❌ [AUDIO ERROR] La transcripción de Whisper llegó vacía")
+        else:
+            print(f"✅ [AUDIO OK] Transcripción: {transcription[:50]}...")
+            
         return transcription
 
     except Exception as e:
+        print(f"❌ [AUDIO EXCEPCIÓN] Error crítico: {str(e)}")
         log.error("audio.transcription_failed", error=str(e))
         return None
     finally:
@@ -126,6 +138,7 @@ async def _whisper_transcribe(file_path: str, language: str = "es") -> str | Non
     result = await loop.run_in_executor(None, _sync_transcribe)
 
     text = str(result).strip()
+    print(f"🎙️ [WHISPER] Resultado crudo: {text[:50]}...")
     log.info("audio.transcribed", text_preview=text[:80])
     return text
 

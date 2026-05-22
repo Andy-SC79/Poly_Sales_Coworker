@@ -59,8 +59,10 @@ class Customer(Base):
     role_metadata: Mapped[dict | None] = mapped_column(JSON, default=dict) # Role-specific config
 
     # Discovered profile (from discovery agent)
-    pain_points: Mapped[list | None] = mapped_column(JSON, default=list)
-    interests: Mapped[list | None] = mapped_column(JSON, default=list)
+    conversation_summary: Mapped[str | None] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(String(100))
+    address: Mapped[str | None] = mapped_column(Text)
+    alternative_phone: Mapped[str | None] = mapped_column(String(20))
     profile_notes: Mapped[str | None] = mapped_column(Text)  # AI-generated summary / Owner prefs
 
     # Lifecycle

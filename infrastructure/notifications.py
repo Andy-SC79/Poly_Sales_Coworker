@@ -10,11 +10,18 @@ from config.settings import get_settings
 settings = get_settings()
 log = structlog.get_logger()
 
-async def send_telegram_alert(message: str):
+# Pizarra virtual para rastrear el último cliente que pidió ayuda
+LAST_ESCALATED_CUSTOMER = None
+
+async def send_telegram_alert(message: str, customer_id: str = None):
     """
     Send a direct message to the configured Admin Chat ID via Telegram API.
-    Used for HITL alerts, sale confirmations, and system errors.
     """
+    global LAST_ESCALATED_CUSTOMER
+    if customer_id:
+        LAST_ESCALATED_CUSTOMER = customer_id
+        log.info("notifications.active_customer_set", customer=customer_id)
+
     if not settings.telegram_bot_token or not settings.telegram_admin_chat_id:
         log.warning("notifications.telegram_missing_config")
         return

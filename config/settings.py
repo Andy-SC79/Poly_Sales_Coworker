@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_whatsapp_from: str = ""
+    admin_phone: str = "" # El número de WhatsApp del dueño (Andres)
 
     # --- Telegram ---
     telegram_bot_token: str = ""
@@ -61,6 +62,8 @@ class Settings(BaseSettings):
     # --- Integrations ---
     droppi_api_key: str = ""
     droppi_base_url: str = "https://api.dropi.co"
+    supabase_orders_url: str = ""
+    supabase_service_role_key: str = ""
 
     # --- Security ---
     webhook_secret: str = "change-me-in-production"

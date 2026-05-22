@@ -2,20 +2,19 @@
 core/knowledge/catalog.py
 --------------------------
 RAG (Retrieval-Augmented Generation) engine for the product catalog.
-Uses Qdrant as the vector store and OpenAI embeddings for similarity search.
+Uses Supabase pgvector as the vector store and OpenAI embeddings for similarity search.
 
 Products, PDFs, and documents are indexed here and retrieved by agents
 when answering product-related questions.
 """
 import structlog
 from pathlib import Path
-from langchain_qdrant import QdrantVectorStore
+from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
 
 from config.settings import get_settings
+from integrations.supabase_client import get_supabase
 
 settings = get_settings()
 log = structlog.get_logger()
@@ -30,53 +29,117 @@ def _get_embeddings() -> OpenAIEmbeddings:
     )
 
 
-async def get_vector_store() -> QdrantVectorStore:
-    """Return a Qdrant vector store connected to the catalog collection."""
-    # Use synchronous client for initialization (better compatibility with LangChain wrapper)
-    client = QdrantClient(
-        host=settings.qdrant_host,
-        port=settings.qdrant_port,
-    )
-
-    # Create collection if it doesn't exist
-    existing = client.get_collections()
-    names = [c.name for c in existing.collections]
-    if settings.qdrant_collection_name not in names:
-        client.create_collection(
-            collection_name=settings.qdrant_collection_name,
-            vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
-        )
-        log.info("qdrant.collection_created", name=settings.qdrant_collection_name)
-
-    return QdrantVectorStore(
+async def get_vector_store() -> SupabaseVectorStore:
+    """Return a Supabase vector store connected to the catalog table."""
+    client = get_supabase()
+    
+    return SupabaseVectorStore(
         client=client,
-        collection_name=settings.qdrant_collection_name,
         embedding=_get_embeddings(),
+        table_name="catalog",
+        query_name="match_catalog"
     )
 
+async def get_episodic_vector_store() -> SupabaseVectorStore:
+    """Return a Supabase vector store connected to the episodic_memories table."""
+    client = get_supabase()
+    
+    return SupabaseVectorStore(
+        client=client,
+        embedding=_get_embeddings(),
+        table_name="episodic_memories",
+        query_name="match_memories"
+    )
 
 async def search_products(query: str, k: int = 3) -> list[Document]:
     """
     Search the product catalog for documents relevant to the query.
-    Used by the Presentation Agent to build personalized recommendations.
     """
-    store = await get_vector_store()
-    results = await store.asimilarity_search(query, k=k)
+    client = get_supabase()
+    embeddings = _get_embeddings()
+    # Ejecutamos de manera síncrona el embedding ya que aembed_query puede ser lento o requerir loop en Langchain
+    query_vector = embeddings.embed_query(query)
+    
+    # Llamada directa a Supabase RPC para esquivar bug de langchain_community (SyncRPCFilterRequestBuilder)
+    res = client.rpc("match_catalog", {
+        "query_embedding": query_vector,
+        "match_count": k,
+        "filter": {}
+    }).execute()
+    
+    results = []
+    if res.data:
+        for row in res.data:
+            results.append(Document(page_content=row.get("content", ""), metadata=row.get("metadata", {})))
+            
     log.info("catalog.search", query=query, results=len(results))
     return results
 
-
-async def index_documents(documents: list[Document]) -> None:
+async def search_episodic_memories(phone: str, query: str, k: int = 3) -> list[Document]:
     """
-    Add documents to the vector store.
-    Called by the worker when the admin uploads a PDF or product list.
+    Search a specific customer's past memories relevant to the query.
+    """
+    client = get_supabase()
+    embeddings = _get_embeddings()
+    query_vector = embeddings.embed_query(query)
+    
+    res = client.rpc("match_memories", {
+        "query_embedding": query_vector,
+        "match_count": k,
+        "filter": {"customer_phone": phone}
+    }).execute()
+    
+    results = []
+    if res.data:
+        for row in res.data:
+            results.append(Document(page_content=row.get("content", ""), metadata=row.get("metadata", {})))
+            
+    log.info("episodic.search", phone=phone, query=query, results=len(results))
+    return results
+
+
+async def index_documents(documents: list[Document], ids: list[str] | None = None) -> None:
+    """
+    Add or update documents in the vector store.
+    If ids are provided, it performs an upsert (overwrites existing with same ID).
     """
     store = await get_vector_store()
-    await store.aadd_documents(documents)
-    log.info("catalog.indexed", count=len(documents))
+    await store.aadd_documents(documents, ids=ids)
+    log.info("catalog.indexed", count=len(documents), ids=ids)
 
 
-async def index_text(text: str, metadata: dict | None = None) -> None:
-    """Convenience wrapper: index a raw text string."""
+async def index_text(text: str, metadata: dict | None = None, doc_id: str | None = None) -> None:
+    """Convenience wrapper: index a raw text string with an optional unique ID into the catalog."""
     doc = Document(page_content=text, metadata=metadata or {})
-    await index_documents([doc])
+    ids = [doc_id] if doc_id else None
+    await index_documents([doc], ids=ids)
+
+async def index_episodic_memory(phone: str, content: str) -> None:
+    """Index a new episodic memory for a customer."""
+    store = await get_episodic_vector_store()
+    doc = Document(
+        page_content=content,
+        metadata={"customer_phone": phone}
+    )
+    await store.aadd_documents([doc])
+    log.info("episodic.indexed", phone=phone)
+
+
+async def list_knowledge(limit: int = 20) -> list[dict]:
+    """
+    Retrieve a list of documents from the catalog for auditing purposes.
+    Returns a list of dicts with content and metadata.
+    """
+    client = get_supabase()
+    
+    res = client.table("catalog").select("content, metadata").limit(limit).execute()
+    
+    results = []
+    if res.data:
+        for row in res.data:
+            results.append({
+                "content": row.get("content"),
+                "metadata": row.get("metadata")
+            })
+            
+    return results

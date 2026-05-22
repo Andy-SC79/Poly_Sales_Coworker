@@ -200,15 +200,12 @@ def generate_response(user_message: str):
 @app.post("/webhook")
 async def whatsapp_webhook(request: Request):
     data = await request.form()
-
     incoming_msg = data.get("Body", "")
+    print(f"\n📩 Mensaje recibido: {incoming_msg}")
 
     response_message = generate_response(incoming_msg)
+    print(f"📤 Respuesta generada: {response_message}")
 
-    twiml = f"""
-    <Response>
-        <Message>{response_message}</Message>
-    </Response>
-    """
+    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message><![CDATA[{response_message}]]></Message></Response>'
 
     return Response(content=twiml, media_type="application/xml")
