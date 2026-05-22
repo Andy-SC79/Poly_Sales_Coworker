@@ -8,6 +8,11 @@ Priority logic:
   - Vision / image analysis  → Gemini 2.0 Flash
   - Complex reasoning         → GPT-4o Mini
   - Simple / fast / offline   → Ollama (phi3)
+
+Runtime override:
+  - Use set_active_model(key) to switch the default model at runtime.
+  - Use get_active_model_info() to read the current active model.
+  - Use get_available_models() to list models that can actually be used.
 """
 from functools import lru_cache
 from typing import Annotated
@@ -25,6 +30,55 @@ settings = get_settings()
 
 # Read from env — defaults to llama3:8b if not set
 _OLLAMA_MODEL = getattr(settings, 'ollama_default_model', 'llama3:8b')
+
+# ── Runtime Model Override ─────────────────────────────────────────────────────
+# Catalogue of all known model keys with human-readable names and providers.
+_MODEL_CATALOGUE = {
+    "gpt-4o-mini":         {"label": "GPT-4o Mini",          "provider": "openai",  "needs": "openai_api_key"},
+    "gpt-4o":              {"label": "GPT-4o",               "provider": "openai",  "needs": "openai_api_key"},
+    "gemini-2.0-flash":    {"label": "Gemini 2.0 Flash",     "provider": "google",  "needs": "google_api_key"},
+    "gemini-2.5-flash":    {"label": "Gemini 2.5 Flash",     "provider": "google",  "needs": "google_api_key"},
+    "ollama":              {"label": f"Ollama ({_OLLAMA_MODEL})", "provider": "ollama", "needs": None},
+}
+
+# The default is the first OpenAI model if key is set, else the first available.
+_runtime_model_override: dict = {"key": None}  # None = use task-based logic
+
+
+def get_available_models() -> list[dict]:
+    """Return the list of models that can actually be used with the current API keys."""
+    available = []
+    for key, meta in _MODEL_CATALOGUE.items():
+        needs = meta["needs"]
+        if needs is None:
+            # Ollama is always listed (may fail at connect time)
+            available.append({"key": key, **meta})
+        elif getattr(settings, needs, ""):
+            available.append({"key": key, **meta})
+    return available
+
+
+def get_active_model_info() -> dict:
+    """Return info about the currently active model."""
+    override_key = _runtime_model_override["key"]
+    if override_key and override_key in _MODEL_CATALOGUE:
+        meta = _MODEL_CATALOGUE[override_key]
+        return {"key": override_key, "label": meta["label"], "provider": meta["provider"], "is_override": True}
+    # Determine default from configured keys
+    if settings.openai_api_key:
+        return {"key": "gpt-4o-mini", "label": "GPT-4o Mini", "provider": "openai", "is_override": False}
+    if settings.google_api_key:
+        return {"key": "gemini-2.0-flash", "label": "Gemini 2.0 Flash", "provider": "google", "is_override": False}
+    return {"key": "ollama", "label": f"Ollama ({_OLLAMA_MODEL})", "provider": "ollama", "is_override": False}
+
+
+def set_active_model(model_key: str) -> bool:
+    """Override the default model at runtime. Returns True if the key is valid and available."""
+    available_keys = {m["key"] for m in get_available_models()}
+    if model_key not in available_keys:
+        return False
+    _runtime_model_override["key"] = model_key
+    return True
 
 
 def _caller_from_state(state: dict | None) -> str | None:
@@ -319,67 +373,88 @@ def get_admin_tools():
     ]
 
 
+def _instantiate_model(model_key: str) -> "BaseChatModel | None":
+    """Instantiate an LLM from a catalogue key. Returns None if unavailable."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    if model_key == "gpt-4o-mini" and settings.openai_api_key:
+        return ChatOpenAI(model="gpt-4o-mini", api_key=settings.openai_api_key, temperature=0.7, max_tokens=512)
+    if model_key == "gpt-4o" and settings.openai_api_key:
+        return ChatOpenAI(model="gpt-4o", api_key=settings.openai_api_key, temperature=0.7, max_tokens=512)
+    if model_key == "gemini-2.0-flash" and settings.google_api_key:
+        return ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=settings.google_api_key, temperature=0.7)
+    if model_key == "gemini-2.5-flash" and settings.google_api_key:
+        return ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-05-20", google_api_key=settings.google_api_key, temperature=0.7)
+    if model_key == "ollama":
+        return ChatOllama(model=_OLLAMA_MODEL, base_url=settings.ollama_base_url, temperature=0.7)
+    return None
+
+
 def get_model(task: str = "default", is_admin: bool = False) -> BaseChatModel:
     """
     Return the appropriate LLM for the given task type, with tools bound if permitted.
+    Respects the runtime model override set via set_active_model().
     """
     model_instance = None
-    
-    # 1. Vision tasks — Prefer Gemini
-    if task == "vision" and settings.google_api_key:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        model_instance = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=settings.google_api_key,
-            temperature=0.7,
-        )
 
-    # 2. Forced Ollama
-    elif task == "ollama":
-        model_instance = ChatOllama(
-            model=_OLLAMA_MODEL,
-            base_url=settings.ollama_base_url,
-            temperature=0.7,
-        )
+    # 0. Runtime override — always takes priority (except for explicit vision/ollama tasks)
+    override_key = _runtime_model_override["key"]
+    if override_key and task not in ("vision", "ollama"):
+        model_instance = _instantiate_model(override_key)
 
-    # 3. Primary / Production Default: GPT-4o Mini
-    elif task in ["complex", "default"] and settings.openai_api_key:
-        model_instance = ChatOpenAI(
-            model="gpt-4o-mini",
-            api_key=settings.openai_api_key,
-            temperature=0.7,
-            max_tokens=512,
-        )
+    if model_instance is None:
+        # 1. Vision tasks — Prefer Gemini
+        if task == "vision" and settings.google_api_key:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            model_instance = ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                google_api_key=settings.google_api_key,
+                temperature=0.7,
+            )
 
-    # 3. Local / Offline — Use Ollama
-    else:
-        try:
+        # 2. Forced Ollama
+        elif task == "ollama":
             model_instance = ChatOllama(
                 model=_OLLAMA_MODEL,
                 base_url=settings.ollama_base_url,
                 temperature=0.7,
             )
-        except Exception:
-            # Fallback to Gemini if everything else fails and key is there
-            if settings.google_api_key:
-                from langchain_google_genai import ChatGoogleGenerativeAI
-                model_instance = ChatGoogleGenerativeAI(
-                    model="gemini-2.0-flash",
-                    google_api_key=settings.google_api_key,
+
+        # 3. Primary / Production Default: GPT-4o Mini
+        elif task in ["complex", "default"] and settings.openai_api_key:
+            model_instance = ChatOpenAI(
+                model="gpt-4o-mini",
+                api_key=settings.openai_api_key,
+                temperature=0.7,
+                max_tokens=512,
+            )
+
+        # 4. Local / Offline — Use Ollama
+        else:
+            try:
+                model_instance = ChatOllama(
+                    model=_OLLAMA_MODEL,
+                    base_url=settings.ollama_base_url,
                     temperature=0.7,
                 )
+            except Exception:
+                # Fallback to Gemini if everything else fails and key is there
+                if settings.google_api_key:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    model_instance = ChatGoogleGenerativeAI(
+                        model="gemini-2.0-flash",
+                        google_api_key=settings.google_api_key,
+                        temperature=0.7,
+                    )
 
     if not model_instance:
         raise ValueError("No LLM provider configured")
 
-    # 4. RBAC Tool Binding (Role-Based Access Control)
+    # 5. RBAC Tool Binding (Role-Based Access Control)
     available_tools = get_admin_tools() if is_admin else get_customer_tools()
-    
+
     if available_tools:
-        # Note: Ollama binding might differ depending on version, 
-        # but ChatOpenAI and ChatGoogleGenerativeAI support .bind_tools
         return model_instance.bind_tools(available_tools)
-    
+
     return model_instance
 
 

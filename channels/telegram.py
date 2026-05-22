@@ -4,20 +4,22 @@ channels/telegram.py
 Telegram channel for administrators — Poly Admin Hub.
 
 Available commands:
-  /start   — Welcome message
-  /help    — List all available commands
-  /status  — System health check (DB, Qdrant, Ollama)
-  /catalog — List indexed products
-  /reindex — Re-index the product catalog from catalog.yaml
+  /start       — Welcome message
+  /help        — List all available commands
+  /status      — System health check (Supabase, Qdrant, Redis, active model)
+  /models      — List available LLMs and switch active model
+  /catalog     — List indexed products
+  /reindex     — Re-index the product catalog from catalog.yaml
 
 Free-text messages are processed by Poly in admin mode.
 Voice messages are automatically transcribed via Whisper.
 """
 import structlog
 from datetime import datetime, timezone
-from telegram import Update, BotCommand
+from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     ContextTypes,
@@ -65,6 +67,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start — Bienvenida\n"
         "/help — Esta ayuda\n"
         "/status — Estado del sistema\n"
+        "/models — Ver y cambiar modelo de IA activo\n"
         "/catalog — Ver productos indexados\n"
         "/reindex — Re-indexar el catálogo desde catalog.yaml\n\n"
         "💬 También puedes escribirme en lenguaje natural:\n"
@@ -76,51 +79,135 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/status — Health check for all services."""
+    """/status — Health check for all active services."""
     if not _is_admin(update):
         await update.message.reply_text("🚫 Acceso no autorizado.")
         return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    lines = [f"🔍 *Estado del sistema* — {datetime.now(timezone.utc).strftime('%H:%M UTC')}\n"]
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    lines = [f"🔍 *Estado del Sistema* — {now}\n"]
 
-    # Check PostgreSQL
+    # ── Active Model ─────────────────────────────────────────────────────────
+    from core.brain.model_selector import get_active_model_info
+    model_info = get_active_model_info()
+    provider_icons = {"openai": "🟢", "google": "🔵", "ollama": "🟡"}
+    icon = provider_icons.get(model_info["provider"], "⚪")
+    override_tag = " _(override manual)_" if model_info["is_override"] else " _(por defecto)_"
+    lines.append(f"{icon} *Modelo activo:* {model_info['label']}{override_tag}")
+
+    # ── Supabase / PostgreSQL ─────────────────────────────────────────────────
     try:
-        from core.memory.database import engine
-        async with engine.connect():
-            lines.append("✅ PostgreSQL: Conectado")
+        import psycopg
+        from urllib.parse import urlparse
+        db_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = await psycopg.AsyncConnection.connect(db_url, autocommit=True, connect_timeout=8)
+        await conn.close()
+        # Extract host for display
+        parsed = urlparse(db_url)
+        host_short = parsed.hostname.split(".")[0] if parsed.hostname else "supabase"
+        lines.append(f"✅ *Supabase (PostgreSQL):* Conectado · `{host_short}`")
     except Exception as e:
-        lines.append(f"❌ PostgreSQL: Error ({type(e).__name__})")
+        lines.append(f"❌ *Supabase:* Error ({type(e).__name__})")
 
-    # Check Qdrant
+    # ── Qdrant ────────────────────────────────────────────────────────────────
     try:
         from qdrant_client import QdrantClient
         client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
         cols = client.get_collections()
         names = [c.name for c in cols.collections]
-        lines.append(f"✅ Qdrant: Conectado ({len(names)} colección/es)")
+        lines.append(f"✅ *Qdrant:* {len(names)} colección/es · `{settings.qdrant_host}:{settings.qdrant_port}`")
     except Exception as e:
-        lines.append(f"❌ Qdrant: Error ({type(e).__name__})")
+        lines.append(f"❌ *Qdrant:* No disponible ({type(e).__name__})")
 
-    # Check Ollama
+    # ── Redis ─────────────────────────────────────────────────────────────────
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=3) as http:
-            r = await http.get(f"{settings.ollama_base_url}/api/tags")
-            r.raise_for_status()
-            model_count = len(r.json().get("models", []))
-            lines.append(f"✅ Ollama: Activo ({model_count} modelos)")
-    except Exception:
-        lines.append("⚠️ Ollama: No disponible (se usará OpenAI)")
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(settings.redis_url, socket_connect_timeout=5)
+        await r.ping()
+        await r.aclose()
+        lines.append(f"✅ *Redis:* Conectado · `{settings.redis_url.split('@')[-1]}`")
+    except Exception as e:
+        lines.append(f"❌ *Redis:* No disponible ({type(e).__name__})")
 
-    # OpenAI Key
-    lines.append(
-        "✅ OpenAI: Configurado" if settings.openai_api_key
-        else "❌ OpenAI: Sin API key"
-    )
+    # ── API Keys configuradas ─────────────────────────────────────────────────
+    lines.append("")
+    lines.append("🔑 *API Keys:*")
+    lines.append("  ✅ OpenAI" if settings.openai_api_key else "  ❌ OpenAI — sin key")
+    lines.append("  ✅ Google/Gemini" if settings.google_api_key else "  ⚠️ Google/Gemini — sin key")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def models_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/models — Show available LLMs and allow switching the active one."""
+    if not _is_admin(update):
+        await update.message.reply_text("🚫 Acceso no autorizado.")
+        return
+
+    from core.brain.model_selector import get_available_models, get_active_model_info
+    available = get_available_models()
+    active = get_active_model_info()
+
+    provider_icons = {"openai": "🟢", "google": "🔵", "ollama": "🟡"}
+
+    # Build inline keyboard — one button per model
+    keyboard = []
+    for model in available:
+        icon = provider_icons.get(model["provider"], "⚪")
+        is_active = model["key"] == active["key"]
+        label = f"{'✦ ' if is_active else ''}{icon} {model['label']}{' ← activo' if is_active else ''}"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"set_model:{model['key']}")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    override_tag = " _(override manual)_" if active["is_override"] else " _(por defecto)_"
+    text = (
+        f"🤖 *Modelos de IA disponibles*\n\n"
+        f"Activo: *{active['label']}*{override_tag}\n\n"
+        f"Toca un botón para cambiar:"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+
+
+async def handle_model_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback for inline model selection buttons."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.data.startswith("set_model:"):
+        return
+
+    model_key = query.data.split("set_model:", 1)[1]
+
+    from core.brain.model_selector import set_active_model, get_available_models, get_active_model_info
+    success = set_active_model(model_key)
+
+    if not success:
+        await query.edit_message_text("❌ Modelo no disponible. Verifica que la API key esté configurada.")
+        return
+
+    active = get_active_model_info()
+    available = get_available_models()
+    provider_icons = {"openai": "🟢", "google": "🔵", "ollama": "🟡"}
+
+    # Rebuild keyboard with new active selection highlighted
+    keyboard = []
+    for model in available:
+        icon = provider_icons.get(model["provider"], "⚪")
+        is_active = model["key"] == active["key"]
+        label = f"{'✦ ' if is_active else ''}{icon} {model['label']}{' ← activo' if is_active else ''}"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"set_model:{model['key']}")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = (
+        f"✅ *Modelo cambiado a: {active['label']}*\n\n"
+        f"Poly usará este modelo en todas las conversaciones activas.\n"
+        f"_(El cambio es temporal — se resetea al reiniciar)_"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    log.info("telegram.model_switched", model=active["key"], label=active["label"])
 
 
 async def catalog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -498,13 +585,17 @@ def build_telegram_app():
     app = ApplicationBuilder().token(settings.telegram_bot_token).build()
 
     # Register all commands
-    app.add_handler(CommandHandler("start",   start_command))
-    app.add_handler(CommandHandler("help",    help_command))
-    app.add_handler(CommandHandler("status",  status_command))
-    app.add_handler(CommandHandler("catalog", catalog_command))
-    app.add_handler(CommandHandler("reindex", reindex_command))
+    app.add_handler(CommandHandler("start",       start_command))
+    app.add_handler(CommandHandler("help",        help_command))
+    app.add_handler(CommandHandler("status",      status_command))
+    app.add_handler(CommandHandler("models",      models_command))
+    app.add_handler(CommandHandler("catalog",     catalog_command))
+    app.add_handler(CommandHandler("reindex",     reindex_command))
     app.add_handler(CommandHandler("reset_admin", reset_admin_command))
-    app.add_handler(CommandHandler("init", init_command))
+    app.add_handler(CommandHandler("init",        init_command))
+
+    # Inline keyboard callbacks
+    app.add_handler(CallbackQueryHandler(handle_model_selection, pattern=r"^set_model:"))
 
     # Register free-text and voice handlers
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_admin_message))

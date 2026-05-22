@@ -20,12 +20,13 @@ log = structlog.get_logger()
 
 # Commands to register in Telegram's menu (shows autocomplete when user types /)
 BOT_COMMANDS = [
-    BotCommand("start",   "Bienvenida al panel de control"),
-    BotCommand("help",    "Ver todos los comandos disponibles"),
-    BotCommand("status",  "Estado del sistema (DB, Qdrant, Ollama)"),
-    BotCommand("catalog", "Ver productos indexados en el catálogo"),
-    BotCommand("reindex", "Re-indexar catálogo desde products.yaml"),
-    BotCommand("init",    "Inicializar sistema con owner_seed.yaml"),
+    BotCommand("start",       "Bienvenida al panel de control"),
+    BotCommand("help",        "Ver todos los comandos disponibles"),
+    BotCommand("status",      "Estado del sistema (Supabase, Qdrant, Redis, modelo)"),
+    BotCommand("models",      "Ver y cambiar el modelo de IA activo"),
+    BotCommand("catalog",     "Ver productos indexados en el catálogo"),
+    BotCommand("reindex",     "Re-indexar catálogo desde products.yaml"),
+    BotCommand("init",        "Inicializar sistema con owner_seed.yaml"),
     BotCommand("reset_admin", "Borrar memoria del administrador (reset)"),
 ]
 
@@ -50,11 +51,18 @@ async def main():
     pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 
     try:
-        async with AsyncConnectionPool(
-            conninfo=pg_url, 
-            max_size=5, 
-            kwargs={"autocommit": True}
-        ) as pool:
+        # min_size=0 uses lazy connections (only open when needed).
+        # This avoids background worker deadlocks on Windows with
+        # WindowsSelectorEventLoopPolicy + psycopg_pool 3.x.
+        pool = AsyncConnectionPool(
+            conninfo=pg_url,
+            min_size=0,
+            max_size=5,
+            open=False,
+            kwargs={"autocommit": True},
+        )
+        await pool.open(wait=True, timeout=30)
+        try:
             # 1. Setup persistent checkpointer
             checkpointer = AsyncPostgresSaver(pool)
             await checkpointer.setup()
@@ -80,6 +88,8 @@ async def main():
                     await app.updater.stop()
                     await app.stop()
                     await app.shutdown()
+        finally:
+            await pool.close()
     except Exception as e:
         log.error("telegram.runner_fatal_error", error=str(e))
 

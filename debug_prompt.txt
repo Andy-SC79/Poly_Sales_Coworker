@@ -5,19 +5,19 @@ CONTENT: ### REGLAS DE ORO DE OPERACIÓN:
 3. EMPATÍA: Escucha el dolor del cliente antes de ofrecer la solución.
 
 CONTEXTO DEL CATÁLOGO:
-Producto: Colágeno Hidrolizado Con Citrato de Magnesio 180gr
-ID: colageno-magnesio-180gr
-Precio: $85,000 COP
-Descripción: Colágeno premium con tecnología de absorción rápida para mejorar la salud de la piel, uñas, cabello y articulaciones.
-Beneficios: Mejora la elasticidad y firmeza de la piel, Fortalece el crecimiento del cabello y endurece las uñas, Reduce dolores articulares y regenera cartílagos
-Dosis: 1 scoop (cuchara medidora) al día disuelto en agua, jugo o batido.
----
 Producto: Omega 3 120 cápsulas
 ID: omega-3
 Precio: $95,000 COP
 Descripción: Suplemento de omega 3...
 Beneficios: 
 Dosis:
+---
+Producto: Colágeno Hidrolizado Con Citrato de Magnesio 180gr
+ID: colageno-magnesio-180gr
+Precio: $85,000 COP
+Descripción: Colágeno premium con tecnología de absorción rápida para mejorar la salud de la piel, uñas, cabello y articulaciones.
+Beneficios: Mejora la elasticidad y firmeza de la piel, Fortalece el crecimiento del cabello y endurece las uñas, Reduce dolores articulares y regenera cartílagos
+Dosis: 1 scoop (cuchara medidora) al día disuelto en agua, jugo o batido.
 --------------------------------------------------
 ROLE: human
 CONTENT: Ok, Poly. Te he dado acceso a channels/telegram.py. Intenta revisar nuevamente el comando /status. Toda nuestra base de datos se ha migrado a Supabase, ya no deberíamos tener nada en postgreSQL local. Deberías ser capaz de cambiar de modelo si te lo pido y saber qué modelo estas usando en el momento. Qué cambios propones para mejorar y actualizar este comando?
@@ -684,4 +684,168 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 --------------------------------------------------
 ROLE: human
 CONTENT: Poly, me copias?
+--------------------------------------------------
+ROLE: ai
+CONTENT: ¡Claro que sí! Estoy aquí. ¿En qué puedo ayudarte hoy?
+--------------------------------------------------
+ROLE: human
+CONTENT: Poly, sigues en línea?
+--------------------------------------------------
+ROLE: ai
+CONTENT: ¡Sí, aquí estoy! ¿Cómo puedo ayudarte?
+--------------------------------------------------
+ROLE: human
+CONTENT: Hola, Poly, responde
+--------------------------------------------------
+ROLE: ai
+CONTENT: ¡Hola! Estoy aquí para ayudarte. ¿Qué necesitas?
+--------------------------------------------------
+ROLE: human
+CONTENT: Probando respuesta ollama
+--------------------------------------------------
+ROLE: human
+CONTENT: Hola Poly, cuéntame un buen chiste
+--------------------------------------------------
+ROLE: human
+CONTENT: Poly, confirma si estás en linea
+--------------------------------------------------
+ROLE: ai
+CONTENT: ¡Sí, estoy en línea! Aquí estoy para ayudarte. ¿En qué puedo asistirte hoy?
+--------------------------------------------------
+ROLE: human
+CONTENT: Al usar el comando /catalog, me sigue saliendo el precio del Omega 3 en 95.000. Me dijiste que lo habías podido cambiar a 85.000. Podrías asegurarte de que este cambio se haga bien? El precio real del Omega 3 debe ser de $85.000 COP
+--------------------------------------------------
+ROLE: ai
+CONTENT: 
+TOOL_CALLS: [{'name': 'verify_fact', 'args': {'product_name': 'Omega 3 120 cápsulas'}, 'id': 'call_hll1ifk3nZRInG5rpdPY90Ss', 'type': 'tool_call'}]
+--------------------------------------------------
+ROLE: tool
+CONTENT: DATO OFICIAL (Local): Omega 3 120 cápsulas - Precio: $95,000 - Stock/Dispo: 30
+--------------------------------------------------
+ROLE: ai
+CONTENT: He verificado el precio del Omega 3 y actualmente está en $95,000 COP en el catálogo. Parece que el cambio a $85,000 COP no se ha aplicado correctamente. 
+
+Voy a proceder a actualizar el precio del Omega 3 a $85,000 COP. Un momento, por favor.
+TOOL_CALLS: [{'name': 'update_catalog', 'args': {'content': 'Precio: 85000', 'product_name': 'Omega 3 120 cápsulas', 'doc_type': 'product'}, 'id': 'call_JBN04hUpI8IupHUpCUsBKeOF', 'type': 'tool_call'}]
+--------------------------------------------------
+ROLE: tool
+CONTENT: Error: Error 22P02:
+Message: invalid input syntax for type uuid: "product_omega_3_120_cápsulas"
+ Please fix your mistakes.
+--------------------------------------------------
+ROLE: ai
+CONTENT: Parece que hubo un error al intentar actualizar el precio del Omega 3. El mensaje indica que hay un problema con el formato o la identificación del producto.
+
+Voy a buscar cómo está definido el producto en el sistema para poder hacer la actualización correctamente. Un momento, por favor.
+TOOL_CALLS: [{'name': 'read_system_config', 'args': {'file_path': 'config/catalog.yaml'}, 'id': 'call_IXbgwP0cio8stFMP1IT3BF7p', 'type': 'tool_call'}]
+--------------------------------------------------
+ROLE: tool
+CONTENT: CONTENIDO DE config/catalog.yaml:
+
+# Catálogo de Productos — Vital Energy Shop
+# Este archivo es la fuente de verdad para Poly.
+# Puedes agregar, quitar o modificar productos aquí y volver a indexar.
+
+products:
+  - id: "colageno-magnesio-180gr"
+    name: "Colágeno Hidrolizado Con Citrato de Magnesio 180gr"
+    status: "active"
+    category: "suplementos"
+    tags:
+      - colageno
+      - magnesio
+      - articulaciones
+      - piel
+      - cabello
+    base_price: 85000
+    offers:
+      - id: "colageno-1"
+        label: "1 unidad"
+        quantity: 1
+        sku: "234567"
+        price: 85000
+      - id: "colageno-2"
+        label: "2 unidades"
+        quantity: 2
+        sku: "234568"
+        price: 160000
+      - id: "colageno-3"
+        label: "3 unidades"
+        quantity: 3
+        sku: "234569"
+        price: 170000
+        badge: "Más popular"
+      - id: "colageno-4"
+        label: "4 unidades"
+        quantity: 4
+        sku: "234570"
+        price: 230000
+        badge: "Más vendido"
+      - id: "colageno-5"
+        label: "5 unidades"
+        quantity: 5
+        sku: "234571"
+        price: 255000
+        badge: "Mejor precio por unidad"  
+    description: "Colágeno premium con tecnología de absorción rápida para mejorar la salud de la piel, uñas, cabello y articulaciones."
+    benefits:
+      - "Mejora la elasticidad y firmeza de la piel"
+      - "Fortalece el crecimiento del cabello y endurece las uñas"
+      - "Reduce dolores articulares y regenera cartílagos"
+    dosage: "1 scoop (cuchara medidora) al día disuelto en agua, jugo o batido."
+    city_availability: "Toda colombia (Envío gratis)"
+    stock: 50
+
+  - id: "omega-3"
+    name: "Omega 3 120 cápsulas"
+    status: "active"
+    category: "suplementos"
+    tags:
+      - omega
+      - cardiovascular
+    description: "Suplemento de omega 3..."
+    stock: 30
+    base_price: 95000
+    sku: "OMEGA120"
+--------------------------------------------------
+ROLE: ai
+CONTENT: 
+TOOL_CALLS: [{'name': 'update_catalog', 'args': {'content': 'base_price: 85000', 'product_name': 'Omega 3 120 cápsulas', 'doc_type': 'product'}, 'id': 'call_7Y8Yf7ub0BbZoROxEQJWlCEK', 'type': 'tool_call'}]
+--------------------------------------------------
+ROLE: tool
+CONTENT: Error: Error 22P02:
+Message: invalid input syntax for type uuid: "product_omega_3_120_cápsulas"
+ Please fix your mistakes.
+--------------------------------------------------
+ROLE: ai
+CONTENT: Parece que hay un problema con el formato al intentar actualizar el precio del Omega 3. El sistema no está reconociendo correctamente el identificador del producto. 
+
+Voy a realizar el cambio directamente en el archivo del catálogo para asegurarme de que se aplique correctamente. Un momento, por favor.
+--------------------------------------------------
+ROLE: human
+CONTENT: Sigue apareciendo el precio viejo
+--------------------------------------------------
+ROLE: ai
+CONTENT: Tool call cancelado por el sistema.
+--------------------------------------------------
+ROLE: human
+CONTENT: Poly, me escuchas?
+--------------------------------------------------
+ROLE: ai
+CONTENT: ¡Sí, te escucho! Estoy aquí. ¿Cómo puedo ayudarte?
+--------------------------------------------------
+ROLE: human
+CONTENT: Tienes la memoria activa de esta sesión?
+--------------------------------------------------
+ROLE: ai
+CONTENT: Sí, tengo acceso a la memoria de esta sesión. Puedo recordar lo que hemos hablado hasta ahora. ¿Hay algo específico que te gustaría revisar o preguntar?
+--------------------------------------------------
+ROLE: human
+CONTENT: Qué estabamos haciendo o discutiendo hace un rato? Pista: catálogo
+--------------------------------------------------
+ROLE: ai
+CONTENT: Estábamos discutiendo sobre el precio del Omega 3 120 cápsulas en el catálogo. Mencionaste que el precio debería ser de $85,000 COP, pero al verificar, el precio seguía apareciendo como $95,000 COP. Intenté actualizar el precio, pero hubo un problema al intentar realizar el cambio en el sistema. ¿Te gustaría que intentáramos nuevamente actualizar el precio o realizar alguna otra acción relacionada?
+--------------------------------------------------
+ROLE: human
+CONTENT: Guarda esto en tu personalidad. Cuando hables conmigo, debes ser específica, clara, concisa, propositiva, recursiva, proactiva y orientada a objetivos. Cuales serian nuestros objetivos según este contexto del cambio de precios?
 --------------------------------------------------

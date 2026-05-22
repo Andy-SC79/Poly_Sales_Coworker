@@ -9,7 +9,7 @@ Processes tasks that should not block the main API:
   - Scheduled follow-up reminders
 """
 import structlog
-from arq import cron
+from arq import cron, run_worker
 from arq.connections import RedisSettings
 
 from config.settings import get_settings
@@ -64,3 +64,6 @@ class WorkerSettings:
     @staticmethod
     async def on_shutdown(ctx):
         log.info("worker.shutdown")
+
+if __name__ == "__main__":
+    run_worker(WorkerSettings)
