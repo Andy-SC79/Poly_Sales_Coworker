@@ -31,12 +31,23 @@ def sync_state_from_tools(state: PolyState):
     # Solo nos interesan mensajes de herramientas que respondieron con éxito
     if isinstance(last_msg, ToolMessage):
         try:
-            # Intentar parsear el contenido como JSON
-            data = json.loads(last_msg.content)
+            raw_content = last_msg.content
+            if isinstance(raw_content, str):
+                data = json.loads(raw_content)
+            else:
+                data = raw_content
+
             updates = {}
             if isinstance(data, dict):
                 if data.get("id"):
                     updates["current_order_id"] = data["id"]
+                if data.get("event") == "escalation":
+                    updates["stage"] = data.get("stage", "escalation")
+                    updates["escalation_pending"] = bool(data.get("escalation_pending", True))
+                if data.get("stage") and data.get("event") != "escalation":
+                    updates["stage"] = data.get("stage")
+                if data.get("escalation_pending") is not None:
+                    updates["escalation_pending"] = bool(data.get("escalation_pending"))
                 return updates
         except Exception:
             pass
@@ -115,7 +126,8 @@ async def build_graph(checkpointer=None):
         "closing": "closing",
         "post_sale": "post_sale",
         "complaint": "complaint",
-        "admin": "admin"
+        "admin": "admin",
+        "escalation": "escalation",
     })
 
     # Escalation siempre termina el turno

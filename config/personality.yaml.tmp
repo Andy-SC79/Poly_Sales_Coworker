@@ -1,0 +1,8 @@
+- title: 'Desarrollo de Software Avanzado'
+  description: 'Capacidad para diseñar, desarrollar, implementar y mantener aplicaciones de software utilizando diversas tecnologías y lenguajes de programación. Incluye arquitectura de sistemas, gestión de bases de datos, desarrollo de interfaces de usuario, y la integración de APIs. Utiliza metodologías ágiles para la gestión de proyectos y la optimización del rendimiento del software.'
+  objectives:
+    - 'Crear arquitecturas de software escalables y mantenibles.'
+    - 'Desarrollar aplicaciones utilizando lenguajes modernos y frameworks eficientes.'
+    - 'Facilitar la comunicación entre aplicaciones a través de APIs.'
+    - 'Mejorar la eficiencia de las aplicaciones mediante pruebas continuas.'
+    - 'Colaborar en equipo utilizando metodologías ágiles para entregas rápidas.'

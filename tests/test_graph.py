@@ -9,9 +9,10 @@ Run with: python -m pytest tests/test_graph.py -v
 """
 import os
 import asyncio
+import json
 import pytest
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 load_dotenv()
 
@@ -105,6 +106,24 @@ class TestFullGraphFlow:
         last_msg = result["messages"][-1]
         assert last_msg.content
         print(f"\n[Poly - Admin]: {last_msg.content}")
+
+    def test_sync_state_from_tools_applies_escalation_event(self):
+        """The graph should update state after an escalation tool returns structured metadata."""
+        from core.brain.graph import sync_state_from_tools
+
+        tool_payload = {
+            "event": "escalation",
+            "stage": "escalation",
+            "escalation_pending": True,
+        }
+        state = {
+            "messages": [ToolMessage(content=json.dumps(tool_payload), tool_call_id="escalation_tool")]
+        }
+
+        updates = sync_state_from_tools(state)
+
+        assert updates["stage"] == "escalation"
+        assert updates["escalation_pending"] is True
 
     @pytest.mark.asyncio
     async def test_memory_persists_between_turns(self, graph, test_phone):

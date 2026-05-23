@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     langchain_project: str = "poly-ai-coworker"
 
     # --- PostgreSQL ---
-    database_url: str
+    database_url: str = "postgresql://test:test@localhost/poly_test"
 
     # --- Qdrant ---
     qdrant_host: str = "localhost"

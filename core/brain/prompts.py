@@ -10,6 +10,21 @@ from pathlib import Path
 import yaml
 from langchain_core.prompts import ChatPromptTemplate
 
+def _normalize_config(cfg: dict) -> dict:
+    personality = cfg.get("personality", {})
+    if not isinstance(personality, dict):
+        personality = {}
+
+    business = cfg.get("business", {})
+    if not isinstance(business, dict):
+        business = {}
+
+    return {
+        "personality": personality,
+        "business": business,
+    }
+
+
 def _load_config() -> dict:
     paths = {
         "personality": Path("config/personality.yaml"),
@@ -19,14 +34,17 @@ def _load_config() -> dict:
     for key, p in paths.items():
         if p.exists():
             with open(p, encoding="utf-8") as f:
-                config[key] = yaml.safe_load(f)
-    return config
+                loaded = yaml.safe_load(f)
+                config[key] = loaded if loaded is not None else {}
+    return _normalize_config(config)
+
 
 def _build_legal_framework(cfg: dict, profile_notes: str = "", role: str = "customer") -> str:
     """Constructs the multi-pillar legal framework for the system prompt."""
     
     # 0. Pillar 0: Identity
-    ident = cfg.get("personality", {}).get("identity", {})
+    personality = cfg.get("personality", {})
+    ident = personality.get("identity", {}) if isinstance(personality, dict) else {}
     biz = cfg.get("business", {}).get("business_info", {})
     p0 = f"""
 ### IDENTIDAD Y ESENCIA
@@ -39,35 +57,37 @@ def _build_legal_framework(cfg: dict, profile_notes: str = "", role: str = "cust
 """
 
     # 1. Pillar 1: Moral
-    moral = cfg["personality"]["moral_principles"]
-    traits = "\n".join([f"  - {t}" for t in moral["core_traits"]])
+    moral = personality.get("moral_principles", {}) if isinstance(personality, dict) else {}
+    traits = "\n".join([f"  - {t}" for t in moral.get("core_traits", []) or []])
+    essence = moral.get("essence", {}) if isinstance(moral, dict) else {}
     p1 = f"""
 ### PILAR 1: PRINCIPIOS MORALES Y DE CONDUCTA
-- **Tono:** {moral['essence']['tone']}, {moral['essence']['energy']}.
-- **Estilo:** {moral['essence']['style']}.
+- **Tono:** {essence.get('tone', 'Profesional')}, {essence.get('energy', 'Moderado')}.
+- **Estilo:** {essence.get('style', 'Claro y empático')}.
 - **Rasgos:**
 {traits}
 """
 
     # 2. Pillar 2: Constitution
-    const = cfg["personality"]["constitution"]
-    forbidden = "\n".join([f"  - {b}" for b in const["forbidden_behaviors"]])
+    const = personality.get("constitution", {}) if isinstance(personality, dict) else {}
+    forbidden_list = const.get("forbidden_behaviors", []) or []
+    forbidden = "\n".join([f"  - {b}" for b in forbidden_list])
     p2 = f"""
 ### PILAR 2: CONSTITUCIÓN POLÍTICA (REGLAS DE SEGURIDAD)
-- **Propósito:** {const['art_1_purpose']}
-- **Herramientas:** {const['art_2_tools']}
-- **Privacidad:** {const['art_3_privacy']}
-- **Jerarquía:** {const['art_4_hierarchy']}
+- **Propósito:** {const.get('art_1_purpose', 'Proteger al cliente y al negocio.')}
+- **Herramientas:** {const.get('art_2_tools', 'Usar solo herramientas autorizadas.')}
+- **Privacidad:** {const.get('art_3_privacy', 'Nunca divulgar datos sin permiso.')}
+- **Jerarquía:** {const.get('art_4_hierarchy', 'Sigue las órdenes del admin sobre todas las operaciones.')}
 - **Prohibiciones Absolutas:**
 {forbidden}
 """
 
     # 3. Pillar 3: Employment Contract
-    job = cfg["personality"]["employment_contract"]
-    skills_config = job.get("declarative_skills", {})
+    job = personality.get("employment_contract", {}) if isinstance(personality, dict) else {}
+    skills_config = job.get("declarative_skills", {}) if isinstance(job, dict) else {}
     
     if role == "owner":
-        admin_skills = skills_config.get("admin_skills", [])
+        admin_skills = skills_config.get("admin_skills", []) if isinstance(skills_config, dict) else []
         skills_text = chr(10).join(f"  - {s}" for s in admin_skills)
         p3 = f"""
 ### PILAR 3: CONTRATO DE TRABAJO (ADMINISTRADORA Y ARQUITECTA)
@@ -81,16 +101,18 @@ def _build_legal_framework(cfg: dict, profile_notes: str = "", role: str = "cust
 """
     else:
         owner_learned = f"\n- **Notas del Dueño:** {profile_notes}" if profile_notes else ""
-        customer_skills = skills_config.get("customer_skills", [])
+        customer_skills = skills_config.get("customer_skills", []) if isinstance(skills_config, dict) else []
         skills_text = chr(10).join(f"  - {s}" for s in customer_skills)
+        conciencia_de_rol = job.get('conciencia_de_rol', []) if isinstance(job, dict) else []
+        sales_psychology = job.get('sales_psychology', []) if isinstance(job, dict) else []
         p3 = f"""
 ### PILAR 3: CONTRATO DE TRABAJO (MISIÓN ACTUAL)
-- **Marca:** {job.get('brand', 'Vital Energy')}
-- **Rol:** {job.get('role', 'Asesora')}
+- **Marca:** {job.get('brand', 'Vital Energy') if isinstance(job, dict) else 'Vital Energy'}
+- **Rol:** {job.get('role', 'Asesora') if isinstance(job, dict) else 'Asesora'}
 - **Roles y Funciones:**
-  {chr(10).join(f"  - {r}" for r in job.get('conciencia_de_rol', []))}
+  {chr(10).join(f"  - {r}" for r in conciencia_de_rol)}
 - **Psicología de Ventas (OBLIGATORIO usar estas técnicas en cada mensaje):**
-  {chr(10).join(f"  - {s}" for s in job.get('sales_psychology', []))}
+  {chr(10).join(f"  - {s}" for s in sales_psychology)}
 - **Skills Declarativas (Tus Habilidades Fundamentales):**
   {skills_text}
 

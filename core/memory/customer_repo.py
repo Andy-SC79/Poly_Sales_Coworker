@@ -35,13 +35,17 @@ class CustomerRepo:
         if not customer:
             return None
             
+        role_metadata = customer.role_metadata
+        if not isinstance(role_metadata, dict):
+            role_metadata = {}
+
         return {
             "name": customer.name,
             "city": customer.city,
             "conversation_summary": customer.conversation_summary or "",
             "profile_notes": customer.profile_notes,
             "role": customer.role,
-            "role_metadata": customer.role_metadata or {},
+            "role_metadata": role_metadata,
             "email": customer.email,
             "address": customer.address,
             "alternative_phone": customer.alternative_phone,
@@ -71,7 +75,8 @@ class CustomerRepo:
                     phone=phone,
                     name=s_cust.get("name"),
                     city=s_cust.get("city"),
-                    profile_notes=s_cust.get("notes")
+                    profile_notes=s_cust.get("notes"),
+                    customer_metadata=s_cust.get("metadata", {})
                 )
                 self.session.add(customer)
                 await self.session.flush()
@@ -106,28 +111,41 @@ class CustomerRepo:
     ) -> None:
         """Update discovered customer data and sync to Cloud."""
         customer, _ = await self.get_or_create(phone)
-        if name: customer.name = name
-        if city: customer.city = city
-        if role: customer.role = role
-        if profile_notes: customer.profile_notes = profile_notes
-        if email: customer.email = email
-        if address: customer.address = address
-        if alternative_phone: customer.alternative_phone = alternative_phone
-        
-        if conversation_summary:
+        if name:
+            customer.name = name
+        if city:
+            customer.city = city
+        if role is not None:
+            customer.role = role
+        if profile_notes is not None:
+            customer.profile_notes = profile_notes
+        if email is not None:
+            customer.email = email
+        if address is not None:
+            customer.address = address
+        if alternative_phone is not None:
+            customer.alternative_phone = alternative_phone
+        if role_metadata is not None:
+            customer.role_metadata = role_metadata
+
+        if conversation_summary is not None:
             customer.conversation_summary = conversation_summary
             
         await self.session.flush()
         
         # Cloud Sync
+        metadata = customer.customer_metadata if isinstance(customer.customer_metadata, dict) else {}
+        metadata = metadata.copy()
+        metadata["role"] = customer.role
+        if customer.role_metadata:
+            metadata["role_metadata"] = customer.role_metadata
+
         cloud_data = {
             "name": customer.name,
             "city": customer.city,
             "notes": customer.profile_notes,
             "conversation_summary": customer.conversation_summary,
-            "metadata": {
-                "role": customer.role
-            }
+            "metadata": metadata,
         }
         if email: cloud_data["email"] = email
         if address: cloud_data["address"] = address

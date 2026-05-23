@@ -215,9 +215,33 @@ async def escalar_consulta_humana(state: Annotated[dict, InjectedState()], pregu
     """
     from infrastructure.notifications import send_telegram_alert
     caller_whatsapp = _caller_from_state(state)
-    msg = f"🚨 *ESCALACIÓN DESDE HERRAMIENTA*\n👤 Cliente: {caller_whatsapp}\n💬 Pregunta/Problema: {pregunta}"
+
+    history = []
+    for msg in state.get("messages", [])[-4:]:
+        if hasattr(msg, "content"):
+            history.append(msg.content)
+        elif isinstance(msg, dict) and msg.get("content"):
+            history.append(msg["content"])
+
+    conversation_snippet = "\n".join(history) if history else "Sin historial reciente."
+    msg = (
+        f"🚨 *ESCALACIÓN DESDE HERRAMIENTA*\n"
+        f"👤 Cliente: {caller_whatsapp}\n"
+        f"📌 Stage actual: {state.get('stage', 'desconocido')}\n"
+        f"💬 Pregunta/Problema: {pregunta}\n"
+        f"📝 Últimos mensajes:\n{conversation_snippet}"
+    )
+
     await send_telegram_alert(msg, customer_id=caller_whatsapp)
-    return f"PAUSA: Se ha enviado la alerta al supervisor en Telegram. Dile al cliente: 'Un momento por favor, voy a consultar eso con mi supervisor y ya regreso contigo.'"
+    return {
+        "event": "escalation",
+        "stage": "escalation",
+        "escalation_pending": True,
+        "customer_id": caller_whatsapp,
+        "question": pregunta,
+        "summary": "Se ha enviado la alerta al supervisor en Telegram. Notifica al cliente que espere un momento mientras revisamos su caso.",
+        "conversation_snippet": conversation_snippet,
+    }
 
 @tool
 async def validate_order_data(

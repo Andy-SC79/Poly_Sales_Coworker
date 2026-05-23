@@ -12,10 +12,12 @@ Tables:
 from datetime import datetime, timezone
 from sqlalchemy import (
     String, Text, JSON, DateTime, Boolean, Integer,
-    ForeignKey, Enum as SAEnum,
+    ForeignKey, Enum as SAEnum, text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 import enum
+import uuid
 
 
 class Base(DeclarativeBase):
@@ -49,26 +51,56 @@ class Customer(Base):
     """Long-term client profile — the CRM."""
     __tablename__ = "customers"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     phone: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String(120))
     city: Mapped[str | None] = mapped_column(String(100))
 
+    # Legacy CRM compatibility
+    customer_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, default=dict)
+    profile_notes: Mapped[str | None] = mapped_column("notes", Text)  # AI-generated summary / Owner prefs
+
     # Corporate Role & Identity
-    role: Mapped[str] = mapped_column(String(20), default="customer") # customer | owner | employee | agent
-    role_metadata: Mapped[dict | None] = mapped_column(JSON, default=dict) # Role-specific config
+    @property
+    def role(self) -> str:
+        meta = self.customer_metadata if isinstance(self.customer_metadata, dict) else {}
+        return str(meta.get("role", "customer"))
+
+    @role.setter
+    def role(self, value: str) -> None:
+        meta = self.customer_metadata if isinstance(self.customer_metadata, dict) else {}
+        meta["role"] = value
+        self.customer_metadata = meta
+
+    @property
+    def role_metadata(self) -> dict:
+        meta = self.customer_metadata if isinstance(self.customer_metadata, dict) else {}
+        value = meta.get("role_metadata", {})
+        return value if isinstance(value, dict) else {}
+
+    @role_metadata.setter
+    def role_metadata(self, value: dict) -> None:
+        meta = self.customer_metadata if isinstance(self.customer_metadata, dict) else {}
+        meta["role_metadata"] = value or {}
+        self.customer_metadata = meta
 
     # Discovered profile (from discovery agent)
     conversation_summary: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(String(100))
     address: Mapped[str | None] = mapped_column(Text)
     alternative_phone: Mapped[str | None] = mapped_column(String(20))
-    profile_notes: Mapped[str | None] = mapped_column(Text)  # AI-generated summary / Owner prefs
 
     # Lifecycle
-    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
-    opted_out: Mapped[bool] = mapped_column(Boolean, default=False)
+    first_seen: Mapped[datetime] = mapped_column("created_at", DateTime(timezone=True), default=_now)
+    last_seen: Mapped[datetime] = mapped_column("last_interaction_at", DateTime(timezone=True), default=_now, onupdate=_now)
+
+    @property
+    def opted_out(self) -> bool:
+        return False
+
+    @opted_out.setter
+    def opted_out(self, value: bool) -> None:
+        pass
 
     # Relationships
     orders: Mapped[list["Order"]] = relationship(back_populates="customer")
