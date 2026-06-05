@@ -1,0 +1,44 @@
+# Database schema and field mapping for business-specific storage.
+# Change these values when the underlying data model or provider changes.
+
+database:
+  provider: supabase
+  tables:
+    customers: customers
+    orders: ORDERS
+    catalog: catalog
+    sales_events: sales_events
+    episodic_memories: episodic_memories
+  rpc:
+    match_catalog: match_catalog
+    match_memories: match_memories
+
+fields:
+  customer:
+    phone: phone
+    name: name
+    city: city
+    notes: notes
+    metadata: metadata
+    email: email
+    address: address
+    alternative_phone: alternative_phone
+    conversation_summary: conversation_summary
+    last_interaction_at: last_interaction_at
+  order:
+    id: Order ID
+    phone: Whatsapp
+    status: Status
+    tracking_number: Tracking Number
+    product_name: Producto
+    offer: Oferta
+    value: Valor a Pagar
+    notes: Notas_Adicionales
+    delivery_notes: Delivery_Notes
+    timestamp: Timestamp
+    email: email
+  catalog:
+    content: content
+    metadata: metadata
+  episodic_memory:
+    customer_phone: customer_phone
