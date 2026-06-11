@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "agent-core"
+version = "0.1.0"
+description = "Core workflow engine and provider interfaces for sales agent framework."
+authors = ["Andres Salavarrieta"]
+readme = "README.md"
+packages = [ { include = "core" } ]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "agent-core"
+version = "0.1.0"
+description = "Core workflow engine and provider interfaces for agents."
+authors = ["Andres Salavarrieta"]
+readme = "README.md"
+packages = [ { include = "agent_core" } ]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+langchain = "^0.3.0"
+langgraph = "^0.2.0"
+langchain-openai = "^0.2.0"
+langchain-google-genai = "^2.0.0"
+langchain-community = "^0.3.0"
+pydantic = "^2.8.0"
+pydantic-settings = "^2.4.0"
+python-dotenv = "^1.0.0"
+structlog = "^24.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
