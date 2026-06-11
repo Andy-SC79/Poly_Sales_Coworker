@@ -1,12 +1,7 @@
-# ==============================================================================
-# Poly AI Coworker — Owner Seed Configuration
-# Use this file to initialize Poly for a new owner or business.
-# ============================================================================== 
-
 owner:
-  name: "Andres"
+  name: "Pablo Andrés"
   role: "CEO & Founder"
-  
+
 business_goals:
   primary: "Aumentar las ventas de suplementos Vital Energy en un 20% este trimestre."
   secondary: "Reducir el tiempo de respuesta a consultas de clientes."

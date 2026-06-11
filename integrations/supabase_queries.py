@@ -183,5 +183,10 @@ async def check_order_status(
         return _format_customer_order(order)
 
     except Exception as e:
-        log.error("order.query_failed", error=str(e))
-        return f"Error al consultar la base de datos: {str(e)}"
+        err = str(e)
+        log.error("order.query_failed", error=err)
+        # Manejo especial: si la columna 'Tracking Number' no existe en el esquema,
+        # PostgREST devuelve un error PGRST204. Informamos al usuario de forma amable.
+        if "PGRST204" in err or "Tracking Number" in err:
+            return "La búsqueda por número de guía no está disponible en este entorno. Intenta consultar por ID de pedido o desde tu WhatsApp." 
+        return f"Error al consultar la base de datos: {err}"

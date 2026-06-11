@@ -130,6 +130,14 @@ async def _invoke_agent(state: PolyState, stage: SalesStage) -> dict:
         "3. EMPATÍA: Escucha el dolor del cliente antes de ofrecer la solución.\n\n"
         f"CONTEXTO DEL CATÁLOGO:\n{products_context if products_context else 'No hay información adicional.'}"
     )
+    # IMPORTANT: If the LLM chooses to call a tool, always include a short assistant
+    # textual reply for the user (e.g., 'Consultando datos, un momento...'), so the
+    # conversation doesn't appear empty while tools execute.
+    rag_instruction += (
+        "\n\n- NOTA OPERACIONAL: Si vas a invocar una herramienta (tool call), "
+        "AÚN ASÍ debes emitir una breve respuesta dirigida al usuario indicando que "
+        "estás consultando una herramienta y que volverás con la respuesta."
+    )
     
     disc_notes = state.get("discovery_notes") or ""
     cust_name = state.get("customer_name") or ""
@@ -210,9 +218,13 @@ Notas temporales de esta sesión: {disc_notes}
                     
             if missing_any:
                 log.warning("agent.sanitized_dangling_tool_call_v3", original_msg=str(msg)[:100])
-                # Crear un mensaje limpio, perdiendo la propiedad tool_calls a propósito
-                clean_content = msg.content if hasattr(msg, "content") else msg.get("content", "...")
-                cleaned_messages.append(AIMessage(content=clean_content or "Tool call cancelado por el sistema."))
+                # Inyectar un SystemMessage claro para evitar que el agente entre en bucles
+                # y para darle retroalimentación sobre por qué la llamada a la herramienta fue cancelada.
+                error_text = (
+                    "❌ Error en la invocación de la herramienta: formato inválido o argumentos incompletos. "
+                    "La llamada fue cancelada por el sistema. Por favor, vuelve a intentarlo enviando un JSON válido con los parámetros requeridos."
+                )
+                cleaned_messages.append(SystemMessage(content=error_text))
                 continue
                 
         cleaned_messages.append(msg)
@@ -235,14 +247,34 @@ Notas temporales de esta sesión: {disc_notes}
     try:
         chain = prompt | model
         response = await chain.ainvoke({"messages": messages_to_send})
+        # Debug dump: store raw response (content, tool_calls, metadata) for root-cause analysis
+        try:
+            import json as _json
+            raw = {
+                "type": type(response).__name__,
+                "content": getattr(response, 'content', None),
+                "tool_calls": getattr(response, 'tool_calls', None),
+                "invalid_tool_calls": getattr(response, 'invalid_tool_calls', None),
+                "response_metadata": getattr(response, 'response_metadata', None),
+            }
+            with open("debug_response.json", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps(raw, default=str))
+                _f.write("\n")
+        except Exception:
+            log.debug("agent.debug_dump_failed")
     except Exception as e:
         log.error("agent.llm_error", error=str(e))
         raise
 
-    # 6. Post-processing (only if NOT a tool call)
+    # 6. Post-processing (handle tool calls specially)
     if hasattr(response, "tool_calls") and response.tool_calls:
-        # If it's a tool call, we return the message and let the graph handle it.
-        # We don't clean content yet.
+        # If it's a tool call, ensure the returned AIMessage has readable content.
+        # The tool execution will still happen, but this prevents empty final
+        # messages and avoids silent failures in downstream callers.
+        try:
+            response.content = response.content or "🔎 Estoy consultando una herramienta para obtener los datos solicitados. Un momento, por favor."
+        except Exception:
+            pass
         return {
             "messages": [response],
             "stage": stage,
@@ -258,10 +290,31 @@ Notas temporales de esta sesión: {disc_notes}
     
     # Clean response text
     clean_content = re.sub(r"\[(PAIN|NAME|NOTE):\s*.*?\]", "", text, flags=re.IGNORECASE).strip()
-    
+
     # Fuerza Bruta: Eliminar los dobles asteriscos de Markdown que rompen WhatsApp
     clean_content = clean_content.replace("**", "*")
-    
+
+    # If cleaning removed all visible text, synthesize a helpful fallback so the agent
+    # doesn't produce an empty message (which breaks Telegram and can cause loops).
+    if not clean_content:
+        fallback_parts = []
+        if name_tags:
+            fallback_parts.append(f"Nombre detectado: {name_tags[0]}")
+        if pain_tags:
+            fallback_parts.append(f"Dolores detectados: {', '.join(pain_tags)}")
+        if note_tags:
+            fallback_parts.append(f"Nota: {note_tags[0]}")
+
+        if fallback_parts:
+            clean_content = " | ".join(fallback_parts)
+        else:
+            # Generic fallback message prompting the model to try again more verbosely
+            clean_content = (
+                "Lo siento, no pude formular una respuesta clara. "
+                "Intentaré de nuevo o pide asistencia humana si el problema persiste."
+            )
+        log.warning("agent.generated_empty_response_replaced", details=text[:200])
+
     response.content = clean_content
 
     update = {
@@ -279,7 +332,45 @@ Notas temporales de esta sesión: {disc_notes}
     
     if note_tags:
         update["admin_notes"] = note_tags[0]
-        
+    # Safety: Ensure the returned message has non-empty content to avoid downstream
+    # failures (Telegram API errors) and to prevent agent loops caused by silent failures.
+    try:
+        msgs = update.get("messages") or []
+        if msgs:
+            last = msgs[-1]
+            content = ""
+            if hasattr(last, 'content'):
+                content = getattr(last, 'content') or ""
+            elif isinstance(last, dict):
+                content = last.get('content', '') or ""
+
+            if not isinstance(content, str) or not content.strip():
+                fallback_parts = []
+                if name_tags:
+                    fallback_parts.append(f"Nombre detectado: {name_tags[0]}")
+                if pain_tags:
+                    fallback_parts.append(f"Dolores detectados: {', '.join(pain_tags)}")
+                if note_tags:
+                    fallback_parts.append(f"Nota: {note_tags[0]}")
+
+                if fallback_parts:
+                    replacement = " | ".join(fallback_parts)
+                else:
+                    replacement = (
+                        "Lo siento, no pude formular una respuesta clara. "
+                        "Intentaré de nuevo o pide asistencia humana si el problema persiste."
+                    )
+
+                log.warning("agent.returned_empty_message_replaced", stage=stage, customer=state.get("customer_id"))
+                # Replace the message with a fresh AIMessage containing the fallback
+                from langchain_core.messages import AIMessage
+                new_msg = AIMessage(content=replacement)
+                msgs[-1] = new_msg
+                update['messages'] = msgs
+
+    except Exception as e:
+        log.error("agent.fallback_injection_failed", error=str(e))
+
     return update
 
 

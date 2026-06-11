@@ -1,78 +1,74 @@
-# Poly AI Coworker — Asistente de Ventas de Alto Rendimiento
+﻿# Poly AI Coworker — Asistente de Ventas de Alto Rendimiento
 
-Poly es un agente de IA autónomo diseñado para transformar la interacción con clientes en canales como WhatsApp y Telegram. Construida sobre **LangGraph**, Poly no es solo un chatbot, sino una "compañera de trabajo" capaz de guiar a un cliente desde el descubrimiento de una necesidad hasta el cierre de una venta y el seguimiento post-venta.
+Poly es un agente de IA autónomo para ventas en WhatsApp y Telegram. Está diseñado para acompañar al cliente desde la consulta inicial hasta el cierre de pedido y el seguimiento, con memoria conversacional, RAG y un hub administrativo en Telegram.
 
-## 🚀 Arquitectura "Poly 2.0"
+## 🚀 Qué incluye este repositorio
 
-Poly utiliza un grafo de estados dinámico que le permite tener un razonamiento fluido y resiliente:
+- `api/`: endpoints HTTP y webhooks.
+- `channels/`: adaptadores para WhatsApp (Twilio) y Telegram.
+- `core/`: grafo de estados, agentes, selector de modelos y herramientas.
+- `config/`: personalidad, prompts y settings centralizados.
+- `integrations/`: Supabase, Droppi y almacenamiento vectorial.
+- `workers/` y `scripts/`: tareas de mantenimiento y soporte.
 
-- **Razonamiento Estructurado:** Un enrutador basado en LLM con salida determinística (Pydantic) que analiza el contexto y la inercia de la conversación para decidir el siguiente paso.
-- **Marco de 3 Pilares:** Su comportamiento está regido por Principios Morales (Alma), una Constitución Política (Leyes) y un Contrato de Trabajo (Misión) definidos en `config/personality.yaml`.
-- **RAG Avanzado:** Búsqueda semántica en tiempo real sobre el catálogo de productos (Qdrant).
-- **Integración Multicanal:** 
-  - **WhatsApp (Twilio):** Para atención directa a clientes.
-  - **Telegram:** Hub de administración para el dueño del negocio.
-- **Persistencia Profesional:** Memoria a largo plazo gestionada mediante PostgreSQL para reconocer a los clientes y sus preferencias meses después.
+## ⚙️ Requisitos
 
-## 🛡️ Role-Based Access Control (RBAC)
+- Python 3.11+
+- Poetry (recomendado)
+- Claves API de OpenAI / Google / Twilio / Telegram / Supabase / ElevenLabs (según el flujo que uses)
+- Docker / Docker Compose opcional para servicios locales
 
-La ejecución de herramientas está asegurada a través de un esquema estricto de roles:
-- **`CUSTOMER_TOOLS`:** Herramientas globales para ventas y logística disponibles en todo momento (Consultas en catálogo Dropi, Verificación de datos, Creación y Cancelación segura de pedidos, y Escalación a Supervisor).
-- **`ADMIN_TOOLS`:** Herramientas exclusivas para el rol de administrador desde Telegram. Permiten la manipulación autónoma de Poly sobre su propia arquitectura y la base de datos:
-  - **Arquitecto:** Modificación y restauración de configuraciones y personalidad.
-  - **CRM Memory:** Manipulación manual del historial y datos de clientes.
-  - **Logística Avanzada:** Asignación de números de guía de envío e inmutabilidad de estado.
-  - **BI & Analytics:** Extracción de KPIs y reportes financieros.
+## 📦 Instalación
 
-## 🛠️ Stack Tecnológico
-
-- **Core:** Python 3.11+, LangChain, LangGraph.
-- **Modelos:** GPT-4o Mini (Razonamiento), Gemini 2.0 Flash (Visión/Backup), Whisper (Voz).
-- **Bases de Datos:** 
-  - **PostgreSQL:** Memoria conversacional y CRM local.
-  - **Qdrant:** Catálogo de productos vectorial.
-  - **Supabase:** Registro central y control de pedidos en la nube.
-- **Integraciones:** Dropi (Dropshipping), Twilio (WhatsApp), Telegram API.
-
-## 📂 Estructura del Proyecto
-
-```text
-├── api/                # Endpoints de FastAPI para webhooks
-├── channels/           # Adaptadores de WhatsApp y Telegram
-├── config/             # Configuración de personalidad (YAML) y productos
-├── core/
-│   ├── brain/          # El "Cerebro": Grafos, Agentes, Enrutador, Selector y Herramientas
-│   ├── knowledge/      # Motor RAG y búsqueda vectorial
-│   └── memory/         # Modelos de base de datos y repositorios (CRM)
-├── infrastructure/     # Notificaciones y utilidades core
-├── integrations/       # Conexiones externas (Supabase, Dropi)
-├── scripts/            # Herramientas de mantenimiento (Indexación, etc.)
-├── poly_chat.py        # CLI para pruebas rápidas en terminal
-└── telegram_runner.py  # Runner del panel administrativo
+```bash
+git clone <repo-url>
+cd sales-agent-ve
+poetry install
+cp .env.example .env
 ```
 
-## ⚙️ Configuración Rápida
+Si prefieres usar `pip` en vez de Poetry:
 
-1. **Clonar y Preparar:**
-   ```bash
-   poetry install
-   copy .env.example .env
-   ```
+```bash
+python -m venv .venv
+.\.venv\Scripts\Activate
+pip install -r requirements.txt
+```
 
-2. **Indexar el Catálogo:**
-   Edita `config/products.yaml` y ejecuta:
-   ```bash
-   python scripts/index_catalog.py
-   ```
+## 🔧 Configuración
 
-3. **Iniciar en Local:**
-   ```bash
-   python telegram_runner.py  # Para el panel de admin
-   python poly_chat.py        # Para probar como cliente en consola
-   ```
+1. Copia `./.env.example` a `./.env`.
+2. Completa tus credenciales reales.
+3. No subas `./.env` al repositorio; está ignorado por `.gitignore`.
 
-## 🎯 Filosofía de Ventas
-Poly sigue un modelo de **Venta Consultiva**. Su prioridad es la empatía y la resolución de dudas. Solo cuando el cliente está listo, activa sus herramientas de cierre para recolectar datos y montar el pedido automáticamente en Supabase y plataformas de logística.
+## ▶️ Ejecución local
+
+```bash
+poetry run python telegram_runner.py
+poetry run python poly_chat.py
+```
+
+Para servicios compatibles con Docker:
+
+```bash
+docker-compose up -d
+```
+
+## 🧩 Archivos importantes
+
+- `config/settings.py`
+- `config/db_schema.yaml`
+- `config/personality.yaml`
+- `core/brain/`
+- `integrations/`
+- `channels/`
+
+## 🛡️ Seguridad
+
+- Usa siempre `.env.example` como plantilla.
+- Nunca compartas secretos ni claves reales en git.
+- Si agregas un proveedor nuevo, actualiza `.env.example`.
 
 ---
-*Desarrollado con ❤️ para Vital Energy Shop.*
+
+*Este repositorio está listo para clonar y montar en un nuevo repositorio limpio.*

@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_core.messages import HumanMessage
-from core.brain.graph import poly_graph
+from core.brain.graph import get_poly_graph, get_best_reply_from_messages
 
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
@@ -67,20 +67,18 @@ async def chat_loop(phone: str, is_admin: bool, use_ollama: bool):
     # For now, we'll assume the user has OLLAMA_DEFAULT_MODEL set.
     # We can pass a flag in the config or just rely on model_selector logic if we force 'ollama' task.
 
-    # Load long-term profile from DB
-    from core.memory.database import get_session
+    # Load long-term profile from Supabase
     from core.memory.customer_repo import CustomerRepo
     try:
-        async with get_session() as session:
-            repo = CustomerRepo(session)
-            profile = await repo.get_profile(phone)
-            state["long_term_profile"] = profile
-            if profile and profile.get("name"):
-                state["customer_name"] = profile["name"]
-            if profile and profile.get("conversation_summary"):
-                state["conversation_summary"] = profile["conversation_summary"]
+        repo = CustomerRepo()
+        profile = await repo.get_profile(phone)
+        state["long_term_profile"] = profile
+        if profile and profile.get("name"):
+            state["customer_name"] = profile["name"]
+        if profile and profile.get("conversation_summary"):
+            state["conversation_summary"] = profile["conversation_summary"]
     except Exception as db_err:
-        print(f"{GRAY}  (DB no disponible: {db_err}){RESET}")
+        print(f"{GRAY}  (CRM no disponible: {db_err}){RESET}")
 
     while True:
         try:
@@ -104,33 +102,31 @@ async def chat_loop(phone: str, is_admin: bool, use_ollama: bool):
             
             # Update local state for next turn
             state.update({k: v for k, v in result.items() if k != "messages"})
-            state["messages"] = result["messages"]
+            state["messages"] = result.get("messages", []) or []
             
-            # --- CRM SYNC: Guardar lo aprendido en la base de datos ---
+            # --- CRM SYNC: Guardar lo aprendido en Supabase ---
             if not is_admin:
                 try:
-                    async with get_session() as session:
-                        repo = CustomerRepo(session)
-                        await repo.update_profile(
-                            phone=phone,
-                            name=result.get("customer_name"),
-                            city=result.get("city"),
-                            conversation_summary=result.get("conversation_summary"),
-                            email=result.get("email"),
-                            address=result.get("address"),
-                            alternative_phone=result.get("alternative_phone")
-                        )
-                        await session.commit()
+                    repo = CustomerRepo()
+                    await repo.update_profile(
+                        phone=phone,
+                        name=result.get("customer_name"),
+                        city=result.get("city"),
+                        conversation_summary=result.get("conversation_summary"),
+                        email=result.get("email"),
+                        address=result.get("address"),
+                        alternative_phone=result.get("alternative_phone")
+                    )
                 except Exception as db_err:
                     print(f"{YELLOW}  ⚠ Error CRM: {db_err}{RESET}")
 
             # Check for tool calls
-            last_ai_msg = state["messages"][-1]
-            if hasattr(last_ai_msg, "tool_calls") and last_ai_msg.tool_calls:
+            last_ai_msg = state["messages"][-1] if state["messages"] else None
+            if last_ai_msg is not None and hasattr(last_ai_msg, "tool_calls") and last_ai_msg.tool_calls:
                 for tc in last_ai_msg.tool_calls:
                     print(f"{YELLOW}  [ACCION: {tc['name']}]{RESET}")
             
-            reply = last_ai_msg.content
+            reply = get_best_reply_from_messages(state["messages"])
             stage = state.get("stage", "?")
             if reply:
                 print(f"{CYAN}Poly:{RESET} {reply}")

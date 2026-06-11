@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "AI Coworker Template — Multi-Agent Sales & Support System"
 authors = ["Andres Salavarrieta"]
 readme = "README.md"
-packages = [{include = "api"}, {include = "core"}, {include = "channels"}, {include = "integrations"}, {include = "workers"}, {include = "config"}]
+packages = [{include = "api"}, {include = "core"}, {include = "agent_core"}, {include = "agent_insurance"}, {include = "channels"}, {include = "integrations"}, {include = "workers"}, {include = "config"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -23,17 +23,6 @@ langchain-openai = "^0.2.0"
 langchain-google-genai = "^2.0.0"
 langchain-community = "^0.3.0"
 duckduckgo-search = "^8.1.1"
-
-# Embeddings & RAG
-langchain-qdrant = "^0.1.0"
-qdrant-client = "^1.11.0"
-
-# Memory (Long-term)
-sqlalchemy = {extras = ["asyncio"], version = "^2.0.0"}
-asyncpg = "^0.30.0"
-alembic = "^1.13.0"
-langgraph-checkpoint-postgres = "^3.0.0"
-psycopg = {extras = ["binary", "pool"], version = "^3.3.0"}
 
 # Background Tasks
 arq = "^0.26.0"

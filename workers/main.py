@@ -4,7 +4,6 @@ workers/main.py
 Background worker entry point using ARQ (Async Redis Queue).
 Processes tasks that should not block the main API:
   - Sending WhatsApp broadcast campaigns
-  - Indexing new PDFs/documents into Qdrant (RAG)
   - Long-term memory extraction after conversations
   - Scheduled follow-up reminders
 """

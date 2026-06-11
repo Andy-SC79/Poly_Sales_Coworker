@@ -1,7 +1,19 @@
 import pytest
 import yaml
 from pathlib import Path
+from types import SimpleNamespace
 from core.brain.admin_tools import edit_file, list_workspace_files
+
+
+class FakeSupabase:
+    def table(self, name):
+        return self
+
+    def select(self, *args, **kwargs):
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=[{"id": 1, "name": "test"}])
 
 
 @pytest.mark.asyncio
@@ -63,12 +75,15 @@ async def test_list_workspace_files(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execute_sql_query_permissions():
+async def test_execute_sql_query_permissions(monkeypatch):
     """Test execute_sql_query respects role-based permissions."""
     from core.brain.admin_tools import execute_sql_query
     from core.brain.permissions import UserRole, get_user_role
     
     # Test admin access
+    fake = FakeSupabase()
+    monkeypatch.setattr("core.brain.admin_tools.get_supabase", lambda: fake)
+
     admin_result = await execute_sql_query.arun({
         "user_id": "admin_123",
         "sql_query": "SELECT * FROM catalog",

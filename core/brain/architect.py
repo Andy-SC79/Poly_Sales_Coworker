@@ -21,13 +21,14 @@ import py_compile
 import subprocess
 import difflib
 from pathlib import Path
+import yaml
 
 log = structlog.get_logger()
 
 # Archivos que Poly tiene permitido ver y editar
 ALLOWED_CONFIG_FILES = [
     "config/personality.yaml",
-    "config/catalog.yaml",
+
     "config/business.yaml",
     "config/owner_seed.yaml",
     "config/links.yaml",
@@ -41,8 +42,6 @@ ALLOWED_CONFIG_FILES = [
     "core/brain/validation.py",
     "knowledge/catalog.py",
     "memory/customer_repo.py",
-    "memory/database.py",
-    "memory/models.py",
     "integrations/supabase_orders.py",
     "integrations/supabase_client.py",
     "integrations/supabase_queries.py",
@@ -89,14 +88,36 @@ def update_system_config(file_path: str, new_content: str):
       8. Retornar estado y diff
     """
     try:
+        # Basic argument validation
+        if not isinstance(file_path, str) or not file_path:
+            log.error("architect.update_invalid_args", file=file_path)
+            return "❌ Argumento inválido: 'file_path' debe ser una cadena no vacía."
+
+        if not isinstance(new_content, str) or new_content.strip() == "":
+            log.error("architect.update_invalid_content", file=file_path)
+            return "❌ Argumento inválido: 'new_content' no puede estar vacío."
+
         if file_path not in ALLOWED_CONFIG_FILES:
             log.error("architect.update_denied", file=file_path)
             return f"❌ Permiso denegado: No tienes acceso a '{file_path}'."
-        
+
+        # If updating YAML, validate YAML syntax before writing
+        if str(file_path).lower().endswith(('.yaml', '.yml')):
+            try:
+                # Will raise if invalid
+                yaml.safe_load(new_content)
+            except Exception as e:
+                log.error("architect.update_invalid_yaml", file=file_path, error=str(e))
+                return (
+                    "❌ ERROR DE FORMATO: El contenido proporcionado no es YAML válido. "
+                    "Corrige la sintaxis (indentación, listas, tipos) y vuelve a intentar.\n"
+                    f"Detalles: {e}"
+                )
+
         path = Path(file_path)
         backup_path = Path(f"{file_path}.bak")
         temp_path = Path(f"{file_path}.tmp")
-        
+
         # 1. Escribir a temp file
         temp_path.write_text(str(new_content), encoding="utf-8")
         log.info("architect.temp_written", file=str(temp_path))

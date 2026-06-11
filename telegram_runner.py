@@ -7,7 +7,7 @@ For production, use webhook mode via FastAPI instead.
 import asyncio
 import sys
 
-# Windows Compatibility Fix for Psycopg 3 + Asyncio
+# Windows compatibility fix for asyncio event loop policy
 if sys.platform == "win32":
     import selectors
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -22,10 +22,10 @@ log = structlog.get_logger()
 BOT_COMMANDS = [
     BotCommand("start",       "Bienvenida al panel de control"),
     BotCommand("help",        "Ver todos los comandos disponibles"),
-    BotCommand("status",      "Estado del sistema (Supabase, Qdrant, Redis, modelo)"),
+    BotCommand("status",      "Estado del sistema (Supabase, Redis, modelo)"),
     BotCommand("models",      "Ver y cambiar el modelo de IA activo"),
     BotCommand("catalog",     "Ver productos indexados en el catálogo"),
-    BotCommand("reindex",     "Re-indexar catálogo desde products.yaml"),
+    BotCommand("reindex",     "Re-indexar catálogo"),
     BotCommand("init",        "Inicializar sistema con owner_seed.yaml"),
     BotCommand("reset_admin", "Borrar memoria del administrador (reset)"),
 ]
@@ -42,54 +42,30 @@ async def main():
         log.error("telegram.runner_failed", reason="No app built. Check TELEGRAM_BOT_TOKEN.")
         return
 
-    # Initialize persistent memory for the runner
-    from psycopg_pool import AsyncConnectionPool
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from core.brain.graph import get_poly_graph
     import core.brain.graph as graph_module
 
-    pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-
     try:
-        # min_size=0 uses lazy connections (only open when needed).
-        # This avoids background worker deadlocks on Windows with
-        # WindowsSelectorEventLoopPolicy + psycopg_pool 3.x.
-        pool = AsyncConnectionPool(
-            conninfo=pg_url,
-            min_size=0,
-            max_size=5,
-            open=False,
-            kwargs={"autocommit": True},
-        )
-        await pool.open(wait=True, timeout=30)
-        try:
-            # 1. Setup persistent checkpointer
-            checkpointer = AsyncPostgresSaver(pool)
-            await checkpointer.setup()
-            # 2. Build graph with persistence
-            graph_module._poly_graph = await get_poly_graph(checkpointer=checkpointer)
-            log.info("telegram.graph_ready", persistence=True)
+        graph_module._poly_graph = await get_poly_graph()
+        log.info("telegram.graph_ready", persistence=False)
 
-            # 3. Start Telegram App
-            async with app:
-                await app.initialize()
-                await app.bot.set_my_commands(BOT_COMMANDS)
-                log.info("telegram.commands_registered", count=len(BOT_COMMANDS))
+        async with app:
+            await app.initialize()
+            await app.bot.set_my_commands(BOT_COMMANDS)
+            log.info("telegram.commands_registered", count=len(BOT_COMMANDS))
 
-                await app.start()
-                log.info("telegram.polling_active")
-                await app.updater.start_polling()
+            await app.start()
+            log.info("telegram.polling_active")
+            await app.updater.start_polling()
 
-                try:
-                    while True:
-                        await asyncio.sleep(1)
-                except (KeyboardInterrupt, asyncio.CancelledError):
-                    log.info("telegram.runner_stopping")
-                    await app.updater.stop()
-                    await app.stop()
-                    await app.shutdown()
-        finally:
-            await pool.close()
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                log.info("telegram.runner_stopping")
+                await app.updater.stop()
+                await app.stop()
+                await app.shutdown()
     except Exception as e:
         log.error("telegram.runner_fatal_error", error=str(e))
 

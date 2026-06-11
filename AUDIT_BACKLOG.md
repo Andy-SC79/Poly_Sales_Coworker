@@ -3,7 +3,7 @@
 These findings remain active for the next review pass.
 
 6. Align the real `config/catalog.yaml` schema with the code paths that still expect `price` or `id`.
-7. Choose one vector store architecture: Supabase pgvector or Qdrant, then remove the duplicate runtime and docs.
+7. Use Supabase pgvector as the single vector store architecture and remove any remaining duplicate runtime/docs references.
 8. Make tool-triggered escalation pause the graph state, not just notify Telegram.
 9. Reject Twilio webhook traffic in production if `TWILIO_AUTH_TOKEN` is missing.
 10. Keep repairing the test suite and settings isolation until the full suite is reliable.

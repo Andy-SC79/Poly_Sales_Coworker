@@ -59,7 +59,7 @@ class PolyState(TypedDict):
     escalation_pending: bool                               # True if Poly is waiting for human answer
 
     # --- Metadata ---
-    long_term_profile: dict | None                         # Loaded from PostgreSQL at session start
+    long_term_profile: dict | None                         # Loaded from Supabase at session start
     role: str                                              # customer | owner | employee | agent
     role_metadata: dict                                    # Specific settings for the role
     admin_notes: str | None                                # Instructions or goals from the owner

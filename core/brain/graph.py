@@ -14,10 +14,10 @@ Each agent node can also loop back for multi-turn interactions.
 import json
 import structlog
 from langgraph.graph import StateGraph, START, END
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from core.brain.state import PolyState
-from core.brain.router import route
-from core.brain import agents
+from agent_sales.router import route
+from agent_sales import agents
 
 log = structlog.get_logger()
 
@@ -111,11 +111,58 @@ async def build_graph(checkpointer=None):
         graph.add_conditional_edges(node, tools_condition)
         
     # Las herramientas siempre pasan por el sincronizador antes de volver
-    graph.add_edge("tools", "sync_state")
+    # Insert a small post-tools node to ensure user-visible feedback if the model
+    # returned only a tool call (avoids empty assistant messages while tools run).
+    def ensure_visible_after_tools(state: PolyState):
+        from langchain_core.messages import AIMessage
+        if not state.get("messages"):
+            return {}
+        last = state["messages"][-1]
+        # If last is a ToolMessage or an AIMessage with empty content, append a notice
+        try:
+            from langchain_core.messages import ToolMessage
+            is_tool = isinstance(last, ToolMessage)
+        except Exception:
+            is_tool = False
+        is_empty_ai = False
+        try:
+            if hasattr(last, 'content') and (not getattr(last, 'content')):
+                is_empty_ai = True
+        except Exception:
+            is_empty_ai = False
+
+        # If last is a ToolMessage and it contains a result, include it as a short AIMessage
+        if is_tool:
+            try:
+                raw = getattr(last, 'content', None)
+                if isinstance(raw, (str, int, float)) and str(raw).strip():
+                    # Keep summary short
+                    short = str(raw)
+                    if len(short) > 1000:
+                        short = short[:1000] + '...'
+                    note = AIMessage(content=f"🔧 Resultado de la herramienta: {short}")
+                else:
+                    note = AIMessage(content="🔎 Consultando herramienta... un momento por favor.")
+            except Exception:
+                note = AIMessage(content="🔎 Consultando herramienta... un momento por favor.")
+            return {"messages": state["messages"] + [note]}
+
+        if is_empty_ai:
+            note = AIMessage(content="🔎 Consultando herramienta... un momento por favor.")
+            return {"messages": state["messages"] + [note]}
+        return {}
+
+    graph.add_node("post_tools", ensure_visible_after_tools)
+    graph.add_edge("tools", "post_tools")
+    graph.add_edge("post_tools", "sync_state")
     
     # (Se eliminaron las rutas incondicionales a END porque sobreescribían a tools_condition y route_after_tools)
 
     def route_after_tools(state: PolyState):
+        # If a tool was executed as part of this turn, end the turn instead of
+        # immediately re-entering the same agent and risking loops.
+        if any(isinstance(msg, ToolMessage) for msg in state.get("messages", [])):
+            return END
         return state.get("stage", "greeting")
 
     graph.add_conditional_edges("sync_state", route_after_tools, {
@@ -128,6 +175,7 @@ async def build_graph(checkpointer=None):
         "complaint": "complaint",
         "admin": "admin",
         "escalation": "escalation",
+        "__end__": END,
     })
 
     # Escalation siempre termina el turno
@@ -143,9 +191,8 @@ async def build_graph(checkpointer=None):
 
 async def _get_checkpointer():
     """
-    Try to connect to PostgreSQL for persistent memory.
-    Falls back to in-memory for stability if DB is unreachable or 
-    if not running within the managed lifespan (like in telegram_runner).
+    Use an in-memory checkpoint when persistent storage is not available.
+    This avoids runtime dependency on a local database during startup.
     """
     from langgraph.checkpoint.memory import MemorySaver
     return MemorySaver() # Default to MemorySaver for standalone runners to avoid connection issues.
@@ -163,6 +210,34 @@ async def get_poly_graph(checkpointer=None):
     return _poly_graph
 
 
+def get_best_reply_from_messages(messages):
+    """Extract the best assistant reply from a list of LangChain messages."""
+    if not messages:
+        return None
+
+    for msg in reversed(messages):
+        content = None
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            msg_type = msg.get("type")
+            if msg_type == "human":
+                continue
+        elif isinstance(msg, HumanMessage):
+            continue
+        elif isinstance(msg, SystemMessage):
+            continue
+        elif isinstance(msg, AIMessage):
+            content = getattr(msg, "content", None)
+        elif isinstance(msg, ToolMessage):
+            content = getattr(msg, "content", None)
+        elif hasattr(msg, "content"):
+            content = getattr(msg, "content", None)
+
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return None
+
+
 # Backward-compat alias for tests and poly_chat.py that import `poly_graph` directly.
 # This triggers a synchronous build using MemorySaver (no DB needed for unit tests).
 def _build_sync_fallback():
@@ -178,15 +253,62 @@ def _build_sync_fallback():
     graph.add_node("complaint",    agents.complaint_agent)
     graph.add_node("admin",        agents.admin_agent)
     graph.add_node("escalation",   agents.escalation_agent)
-    graph.add_conditional_edges(START, route, {
-        "greeting": "greeting", "discovery": "discovery",
-        "presentation": "presentation", "objection": "objection",
-        "closing": "closing", "post_sale": "post_sale",
-        "complaint": "complaint", "admin": "admin", "escalation": "escalation",
-    })
-    for node in ["greeting", "discovery", "presentation", "objection",
-                 "closing", "post_sale", "complaint", "admin", "escalation"]:
-        graph.add_edge(node, END)
+    
+    graph.add_node("sync_state", sync_state_from_tools)
+    
+    # Tools node for fallback
+    from langgraph.prebuilt import ToolNode
+    from core.brain.model_selector import get_admin_tools
+    tools_node = ToolNode(get_admin_tools(), handle_tool_errors=True)
+    graph.add_node("tools", tools_node)
+    
+    # Post-tools node
+    def ensure_visible_after_tools(state: PolyState):
+        from langchain_core.messages import AIMessage, ToolMessage
+        if not state.get("messages"):
+            return {}
+        last = state["messages"][-1]
+        is_tool = isinstance(last, ToolMessage)
+        is_empty_ai = False
+        try:
+            if hasattr(last, 'content') and (not getattr(last, 'content')):
+                is_empty_ai = True
+        except Exception:
+            is_empty_ai = False
+
+        if is_tool:
+            try:
+                raw = getattr(last, 'content', None)
+                if isinstance(raw, (str, int, float)) and str(raw).strip():
+                    short = str(raw)
+                    if len(short) > 1000:
+                        short = short[:1000] + '...'
+                    note = AIMessage(content=f"🔧 Resultado de la herramienta: {short}")
+                else:
+                    note = AIMessage(content="🔎 Consultando herramienta... un momento por favor.")
+            except Exception:
+                note = AIMessage(content="🔎 Consultando herramienta... un momento por favor.")
+            return {"messages": state["messages"] + [note]}
+
+        if is_empty_ai:
+            note = AIMessage(content="🔎 Consultando herramienta... un momento por favor.")
+            return {"messages": state["messages"] + [note]}
+
+        return {}
+    
+    graph.add_node("post_tools", ensure_visible_after_tools)
+    
+    graph.add_edge(START, "greeting")
+    graph.add_edge("greeting", END)
+    graph.add_edge("discovery", END)
+    graph.add_edge("presentation", END)
+    graph.add_edge("objection", END)
+    graph.add_edge("closing", END)
+    graph.add_edge("post_sale", END)
+    graph.add_edge("complaint", END)
+    graph.add_edge("admin", END)
+    graph.add_edge("escalation", END)
+    
     return graph.compile(checkpointer=MemorySaver())
 
 

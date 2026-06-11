@@ -21,8 +21,7 @@ from langchain_core.messages import HumanMessage
 from twilio.request_validator import RequestValidator
 
 from config.settings import get_settings
-from core.brain.graph import get_poly_graph
-from core.memory.database import get_session
+from core.brain.graph import get_poly_graph, get_best_reply_from_messages
 from core.memory.customer_repo import CustomerRepo
 from infrastructure.audio import transcribe_from_url
 
@@ -172,15 +171,14 @@ async def _process_message(phone: str, body: str, media_url: str | None = None) 
         else:
             body = "[Nota de voz no transcrita — por favor escribe tu mensaje]"
 
-    # Load long-term customer profile from DB (if DB is available)
+    # Load long-term customer profile from Supabase
     long_term_profile = None
     try:
-        async with get_session() as session:
-            repo = CustomerRepo(session)
-            long_term_profile = await repo.get_profile(phone)
-            await repo.get_or_create(phone)
+        repo = CustomerRepo()
+        long_term_profile = await repo.get_profile(phone)
+        await repo.get_or_create(phone)
     except Exception as e:
-        log.warning("whatsapp.db_unavailable", error=str(e))
+        log.warning("whatsapp.crm_unavailable", error=str(e))
 
     config = {"configurable": {"thread_id": phone}}
     graph = await get_poly_graph()
@@ -194,30 +192,36 @@ async def _process_message(phone: str, body: str, media_url: str | None = None) 
 
     try:
         result = await graph.ainvoke(state, config=config)
-        reply = result["messages"][-1].content
+        reply = get_best_reply_from_messages(result.get("messages", []))
         stage = result.get("stage", "unknown")
         
-        # --- CRM SYNC: Save detected name and pain points to DB ---
+        if not isinstance(reply, str) or not reply.strip():
+            reply = None
+        
+        # --- CRM SYNC: Save detected name and pain points to Supabase ---
         try:
-            async with get_session() as session:
-                repo = CustomerRepo(session)
-                await repo.update_profile(
-                    phone=phone,
-                    name=result.get("customer_name"),
-                    city=result.get("city"),
-                    conversation_summary=result.get("conversation_summary"),
-                    email=result.get("email"),
-                    address=result.get("address"),
-                    alternative_phone=result.get("alternative_phone")
-                )
-                await session.commit()
+            repo = CustomerRepo()
+            await repo.update_profile(
+                phone=phone,
+                name=result.get("customer_name"),
+                city=result.get("city"),
+                conversation_summary=result.get("conversation_summary"),
+                email=result.get("email"),
+                address=result.get("address"),
+                alternative_phone=result.get("alternative_phone")
+            )
         except Exception as db_err:
             log.warning("whatsapp.crm_sync_failed", error=str(db_err))
 
-        log.info("whatsapp.reply", phone=phone, stage=stage, reply=reply[:60])
+        log.info(
+            "whatsapp.reply",
+            phone=phone,
+            stage=stage,
+            reply=reply[:60] if isinstance(reply, str) else None,
+        )
         
         # --- SHADOWING / ESCALACIÓN: Si el mensaje pide silencio, no enviamos nada a Twilio ---
-        if "[SILENCIO]" in reply or "[Silencio:" in reply:
+        if isinstance(reply, str) and ("[SILENCIO]" in reply or "[Silencio:" in reply):
             log.info("whatsapp.silence_detected", phone=phone)
             return None
 

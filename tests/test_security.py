@@ -17,7 +17,6 @@ def production_client():
     with patch.dict("os.environ", {
         "APP_ENV": "production",
         "TWILIO_AUTH_TOKEN": "test_auth_token_1234567890abcdef",
-        "DATABASE_URL": "postgresql+asyncpg://poly:@localhost:5432/poly_db",
     }):
         import config.settings as settings_module
         settings_module.get_settings.cache_clear()
@@ -40,7 +39,6 @@ def dev_client():
     with patch.dict("os.environ", {
         "APP_ENV": "development",
         "TWILIO_AUTH_TOKEN": "test_auth_token_1234567890abcdef",
-        "DATABASE_URL": "postgresql+asyncpg://poly:@localhost:5432/poly_db",
     }):
         import config.settings as settings_module
         settings_module.get_settings.cache_clear()

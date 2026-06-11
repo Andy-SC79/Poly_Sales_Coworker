@@ -34,14 +34,6 @@ class Settings(BaseSettings):
     langchain_api_key: str = ""
     langchain_project: str = "poly-ai-coworker"
 
-    # --- PostgreSQL ---
-    database_url: str = "postgresql://test:test@localhost/poly_test"
-
-    # --- Qdrant ---
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
-    qdrant_collection_name: str = "product_catalog"
-
     # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"
 

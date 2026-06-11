@@ -14,6 +14,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 
 from config.settings import get_settings
+from config.db_schema import field as schema_field, rpc as schema_rpc, table as schema_table
 from integrations.supabase_client import get_supabase
 
 settings = get_settings()
@@ -36,8 +37,8 @@ async def get_vector_store() -> SupabaseVectorStore:
     return SupabaseVectorStore(
         client=client,
         embedding=_get_embeddings(),
-        table_name="catalog",
-        query_name="match_catalog"
+        table_name=schema_table("catalog"),
+        query_name=schema_rpc("match_catalog")
     )
 
 async def get_episodic_vector_store() -> SupabaseVectorStore:
@@ -47,8 +48,8 @@ async def get_episodic_vector_store() -> SupabaseVectorStore:
     return SupabaseVectorStore(
         client=client,
         embedding=_get_embeddings(),
-        table_name="episodic_memories",
-        query_name="match_memories"
+        table_name=schema_table("episodic_memories"),
+        query_name=schema_rpc("match_memories")
     )
 
 async def search_products(query: str, k: int = 3) -> list[Document]:
@@ -61,7 +62,7 @@ async def search_products(query: str, k: int = 3) -> list[Document]:
     query_vector = embeddings.embed_query(query)
     
     # Llamada directa a Supabase RPC para esquivar bug de langchain_community (SyncRPCFilterRequestBuilder)
-    res = client.rpc("match_catalog", {
+    res = client.rpc(schema_rpc("match_catalog"), {
         "query_embedding": query_vector,
         "match_count": k,
         "filter": {}
@@ -83,10 +84,10 @@ async def search_episodic_memories(phone: str, query: str, k: int = 3) -> list[D
     embeddings = _get_embeddings()
     query_vector = embeddings.embed_query(query)
     
-    res = client.rpc("match_memories", {
+    res = client.rpc(schema_rpc("match_memories"), {
         "query_embedding": query_vector,
         "match_count": k,
-        "filter": {"customer_phone": phone}
+        "filter": {schema_field("episodic_memory", "customer_phone"): phone}
     }).execute()
     
     results = []
@@ -132,7 +133,9 @@ async def list_knowledge(limit: int = 20) -> list[dict]:
     """
     client = get_supabase()
     
-    res = client.table("catalog").select("content, metadata").limit(limit).execute()
+    res = client.table(schema_table("catalog")).select(
+        f"{schema_field('catalog', 'content')}, {schema_field('catalog', 'metadata')}"
+    ).limit(limit).execute()
     
     results = []
     if res.data:

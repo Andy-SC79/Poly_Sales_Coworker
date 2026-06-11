@@ -85,7 +85,6 @@ async def submit_order_to_supabase(
         "Oferta": oferta,
         "SKU": sku,
         "Status": "Creado",
-        "Tracking Number": "",
         "Valor a Pagar": final_value,
         "Timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -106,7 +105,7 @@ async def submit_order_to_supabase(
             try:
                 # El "Order ID" debe ser entero en la base de datos
                 int_clean_id = int(clean_id)
-                existing = supabase.table("ORDERS").select('"Tracking Number", "Status", "Whatsapp"').eq("Order ID", int_clean_id).execute()
+                existing = supabase.table("ORDERS").select("*").eq("Order ID", int_clean_id).execute()
                 if not existing.data:
                     raise ValueError(f"No se encontro el pedido {order_id}; no se creo un pedido nuevo.")
                 
@@ -172,7 +171,7 @@ async def update_order_status(order_id: str, status: str, caller_whatsapp: str =
             int_id = int(clean_id)
             
             # Validación estricta antes de actualizar
-            existing = supabase.table("ORDERS").select('"Tracking Number", "Whatsapp"').eq("Order ID", int_id).execute()
+            existing = supabase.table("ORDERS").select("*").eq("Order ID", int_id).execute()
             if existing.data:
                 db_phone = existing.data[0].get("Whatsapp")
                 db_clean = str(db_phone)[-10:] if db_phone else ""

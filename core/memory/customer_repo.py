@@ -1,99 +1,96 @@
 """
 core/memory/customer_repo.py
 -----------------------------
-Repository pattern for all customer-related DB operations.
-Syncs data on Supabase Cloud.
+Repository pattern for all customer-related CRM operations.
+This implementation is Supabase-first and uses Supabase as the single source of truth.
 """
 import structlog
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 
-from core.memory.models import Customer, Conversation, AnalyticsEvent
+from config.db_schema import field as schema_field, table as schema_table
 from integrations.supabase_client import get_supabase
 
 log = structlog.get_logger()
 
 class CustomerRepo:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+    def __init__(self):
         self.supabase = get_supabase()
 
     def _normalize_phone(self, phone: str) -> str:
         """Limpia el número para evitar duplicados (ej: +57300 -> 300)."""
-        if not phone: return ""
-        # Eliminar todo lo que no sea número
+        if not phone:
+            return ""
         clean = "".join(filter(str.isdigit, phone))
-        # Si empieza por 57 y tiene 12 dígitos, quitar el 57
         if clean.startswith("57") and len(clean) == 12:
             return clean[2:]
         return clean
 
-    async def get_profile(self, phone: str) -> dict | None:
-        """Get customer profile summary for LLM context."""
-        customer, _ = await self.get_or_create(phone)
-        if not customer:
-            return None
-            
-        role_metadata = customer.role_metadata
-        if not isinstance(role_metadata, dict):
-            role_metadata = {}
+    def _record_to_profile(self, record: dict) -> dict:
+        """Convert a Supabase customer record into the profile shape used by Poly."""
+        if not record:
+            return {}
+
+        metadata = record.get(schema_field("customer", "metadata"), {}) or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
 
         return {
-            "name": customer.name,
-            "city": customer.city,
-            "conversation_summary": customer.conversation_summary or "",
-            "profile_notes": customer.profile_notes,
-            "role": customer.role,
-            "role_metadata": role_metadata,
-            "email": customer.email,
-            "address": customer.address,
-            "alternative_phone": customer.alternative_phone,
+            "phone": record.get(schema_field("customer", "phone")),
+            "name": record.get(schema_field("customer", "name")),
+            "city": record.get(schema_field("customer", "city")),
+            "conversation_summary": record.get(schema_field("customer", "conversation_summary"), ""),
+            "profile_notes": record.get(schema_field("customer", "notes")),
+            "role": str(metadata.get("role", "customer")),
+            "role_metadata": metadata.get("role_metadata", {}),
+            "email": record.get(schema_field("customer", "email")),
+            "address": record.get(schema_field("customer", "address")),
+            "alternative_phone": record.get(schema_field("customer", "alternative_phone")),
+            "metadata": metadata,
         }
 
-    async def get_or_create(self, phone: str) -> tuple[Customer, bool]:
-        """
-        Return existing customer or create a new one.
-        Syncs with Supabase if missing locally.
-        """
+    async def get_profile(self, phone: str) -> dict | None:
+        """Get customer profile summary for LLM context from Supabase."""
         phone = self._normalize_phone(phone)
-        # 1. Local check
-        result = await self.session.execute(
-            select(Customer).where(Customer.phone == phone)
-        )
-        customer = result.scalar_one_or_none()
-        
-        if customer:
-            return customer, False
+        if not phone:
+            return None
 
-        # 2. Supabase check (Sync back if exists there but not locally)
         try:
-            res = self.supabase.table("customers").select("*").eq("phone", phone).execute()
+            customers_table = schema_table("customers")
+            phone_field = schema_field("customer", "phone")
+            res = self.supabase.table(customers_table).select("*").eq(phone_field, phone).limit(1).execute()
             if res.data:
-                s_cust = res.data[0]
-                customer = Customer(
-                    phone=phone,
-                    name=s_cust.get("name"),
-                    city=s_cust.get("city"),
-                    profile_notes=s_cust.get("notes"),
-                    customer_metadata=s_cust.get("metadata", {})
-                )
-                self.session.add(customer)
-                await self.session.flush()
-                return customer, False
+                return self._record_to_profile(res.data[0])
         except Exception as e:
-            log.warning("customer.supabase_sync_failed", error=str(e))
+            log.warning("customer.supabase_read_failed", error=str(e), phone=phone)
+        return None
 
-        # 3. Create new if nowhere
-        customer = Customer(phone=phone)
-        self.session.add(customer)
-        await self.session.flush()
-        
-        # Sync to Supabase
-        self._sync_to_supabase(customer)
-        
-        log.info("customer.created", phone=phone)
-        return customer, True
+    async def get_or_create(self, phone: str) -> tuple[dict, bool]:
+        """Return existing customer profile or create a new one in Supabase."""
+        phone = self._normalize_phone(phone)
+        if not phone:
+            return {}, True
+
+        customers_table = schema_table("customers")
+        phone_field = schema_field("customer", "phone")
+        try:
+            res = self.supabase.table(customers_table).select("*").eq(phone_field, phone).limit(1).execute()
+            if res.data:
+                return self._record_to_profile(res.data[0]), False
+
+            payload = {
+                phone_field: phone,
+                schema_field("customer", "name"): "Sin nombre",
+                schema_field("customer", "city"): "",
+                schema_field("customer", "notes"): "",
+                schema_field("customer", "conversation_summary"): "",
+                schema_field("customer", "metadata"): {"role": "customer"},
+                schema_field("customer", "last_interaction_at"): datetime.now(timezone.utc).isoformat(),
+            }
+            self.supabase.table(customers_table).insert(payload).execute()
+            return self._record_to_profile(payload), True
+        except Exception as e:
+            log.warning("customer.supabase_create_failed", error=str(e), phone=phone)
+            return {}, True
 
     async def update_profile(
         self,
@@ -109,51 +106,52 @@ class CustomerRepo:
         alternative_phone: str | None = None,
         department: str | None = None,
     ) -> None:
-        """Update discovered customer data and sync to Cloud."""
-        customer, _ = await self.get_or_create(phone)
-        if name:
-            customer.name = name
-        if city:
-            customer.city = city
+        """Update customer profile data in Supabase."""
+        phone = self._normalize_phone(phone)
+        if not phone:
+            raise ValueError("Phone is required")
+
+        current = await self.get_profile(phone) or {}
+        metadata = current.get("metadata", {}) or {}
         if role is not None:
-            customer.role = role
-        if profile_notes is not None:
-            customer.profile_notes = profile_notes
-        if email is not None:
-            customer.email = email
-        if address is not None:
-            customer.address = address
-        if alternative_phone is not None:
-            customer.alternative_phone = alternative_phone
+            metadata["role"] = role
         if role_metadata is not None:
-            customer.role_metadata = role_metadata
+            metadata["role_metadata"] = role_metadata
 
-        if conversation_summary is not None:
-            customer.conversation_summary = conversation_summary
-            
-        await self.session.flush()
-        
-        # Cloud Sync
-        metadata = customer.customer_metadata if isinstance(customer.customer_metadata, dict) else {}
-        metadata = metadata.copy()
-        metadata["role"] = customer.role
-        if customer.role_metadata:
-            metadata["role_metadata"] = customer.role_metadata
-
-        cloud_data = {
-            "name": customer.name,
-            "city": customer.city,
-            "notes": customer.profile_notes,
-            "conversation_summary": customer.conversation_summary,
-            "metadata": metadata,
+        data = {
+            schema_field("customer", "phone"): phone,
+            schema_field("customer", "name"): name if name is not None else current.get("name", "Sin nombre"),
+            schema_field("customer", "city"): city if city is not None else current.get("city", ""),
+            schema_field("customer", "notes"): profile_notes if profile_notes is not None else current.get("profile_notes", ""),
+            schema_field("customer", "conversation_summary"): conversation_summary if conversation_summary is not None else current.get("conversation_summary", ""),
+            schema_field("customer", "metadata"): metadata,
+            schema_field("customer", "last_interaction_at"): datetime.now(timezone.utc).isoformat(),
         }
-        if email: cloud_data["email"] = email
-        if address: cloud_data["address"] = address
-        if alternative_phone: cloud_data["alternative_phone"] = alternative_phone
-        if department: cloud_data["department"] = department
 
-        self._sync_to_supabase(customer, extra_data=cloud_data)
-        log.info("customer.profile_updated", phone=phone)
+        if email is not None:
+            data[schema_field("customer", "email")] = email
+        elif current.get("email") is not None:
+            data[schema_field("customer", "email")] = current.get("email")
+
+        if address is not None:
+            data[schema_field("customer", "address")] = address
+        elif current.get("address") is not None:
+            data[schema_field("customer", "address")] = current.get("address")
+
+        if alternative_phone is not None:
+            data[schema_field("customer", "alternative_phone")] = alternative_phone
+        elif current.get("alternative_phone") is not None:
+            data[schema_field("customer", "alternative_phone")] = current.get("alternative_phone")
+
+        if department is not None:
+            data["department"] = department
+
+        try:
+            customers_table = schema_table("customers")
+            self.supabase.table(customers_table).upsert(data, on_conflict=schema_field("customer", "phone")).execute()
+            log.info("customer.profile_updated", phone=phone)
+        except Exception as e:
+            log.warning("customer.supabase_update_failed", error=str(e), phone=phone)
 
     async def log_event(
         self,
@@ -162,42 +160,20 @@ class CustomerRepo:
         product_name: str | None = None,
         metadata: dict | None = None,
     ) -> None:
-        """Record a sales event in local DB and Supabase Sales Events."""
-        customer, _ = await self.get_or_create(phone)
-        
-        # 1. Local Event
-        event = AnalyticsEvent(
-            customer_id=customer.id,
-            event_type=event_type,
-            event_meta=metadata,
-        )
-        self.session.add(event)
-        await self.session.flush()
+        """Record a sales event directly in Supabase."""
+        phone = self._normalize_phone(phone)
+        if not phone:
+            return
 
-        # 2. Supabase Sales Event
         try:
-            self.supabase.table("sales_events").insert({
-                "customer_phone": phone,
+            sales_events_table = schema_table("sales_events")
+            payload = {
+                schema_field("customer", "phone"): phone,
                 "event_type": event_type,
-                "product_name": product_name,
-                "metadata": metadata or {}
-            }).execute()
-        except Exception as e:
-            log.warning("event.supabase_sync_failed", error=str(e))
-
-    def _sync_to_supabase(self, customer: Customer, extra_data: dict = None):
-        """Helper to push local state to Supabase."""
-        try:
-            data = {
-                "phone": customer.phone,
-                "name": customer.name or "Sin nombre",
-                "city": customer.city or "",
-                "notes": customer.profile_notes or "",
-                "last_interaction_at": datetime.now(timezone.utc).isoformat()
+                "metadata": metadata or {},
             }
-            if extra_data:
-                data.update(extra_data)
-                
-            self.supabase.table("customers").upsert(data, on_conflict="phone").execute()
+            if product_name:
+                payload["product_name"] = product_name
+            self.supabase.table(sales_events_table).insert(payload).execute()
         except Exception as e:
-            log.warning("customer.sync_to_cloud_failed", error=str(e))
+            log.warning("event.supabase_insert_failed", error=str(e), phone=phone)
