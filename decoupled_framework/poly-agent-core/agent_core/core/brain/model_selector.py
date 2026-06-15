@@ -101,7 +101,8 @@ async def update_catalog(content: str, product_name: str = "General", doc_type: 
     Agrega o actualiza información en el conocimiento de Poly (vector DB / RAG).
     doc_type puede ser: 'product', 'policy' o 'company_info'.
     """
-    from core.knowledge.catalog import index_text
+    if index_text is None:
+        return "❌ update_catalog: El catálogo de conocimiento no está disponible en este agente."
 
     if not content or not str(content).strip():
         return "❌ update_catalog: El campo 'content' no puede estar vacío."
@@ -268,7 +269,7 @@ async def validate_order_data(
     Incluye validación de Correo (MX) y Nomenclatura de Dirección.
     Úsalo cuando el cliente te dé sus datos.
     """
-    from core.brain.validation import validate_order
+    from .validation import validate_order
     data = {
         "full_name": full_name,
         "email": email,
